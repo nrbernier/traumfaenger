@@ -743,112 +743,286 @@ function blitBuf(buf, dx, dy, P, flip){
   }
 }
 
-/* ----- creature body shapes ----- */
-function ell(buf, cx, cy, rx, ry, base){
-  const dk = shade(base,0.72), lt = shade(base,1.22);
-  for (let y=0;y<16;y++) for (let x=0;x<16;x++){
-    const nx=(x-cx)/rx, ny=(y-cy)/ry;
-    if (nx*nx+ny*ny <= 1){
-      let c = base; const d = (x-cx)+(y-cy);
-      if (d > rx*0.55) c = dk; else if (d < -rx*0.85) c = lt;
-      buf[y][x] = c;
-    }
+/* ----- per-creature 16x16 pixel templates -----
+   Each dream is a hand-drawn grid keyed to a palette derived from its
+   base colour, shaped after the emoji its name plays on:
+   dove, wolf-pup, hatching chick, toad, dew-drop, butterfly, bat,
+   moai, snake, owl, swan, stag, octopus, night-mare, the dark moon. */
+function paint(buf, rows, pal){
+  for (let y=0;y<rows.length;y++){
+    const r = rows[y];
+    for (let x=0;x<r.length;x++){ const c = pal[r[x]]; if (c) buf[y][x] = c; }
   }
 }
-function dropShape(buf, base){
-  const dk = shade(base,0.72), lt = shade(base,1.32);
-  for (let y=0;y<16;y++) for (let x=0;x<16;x++){
-    let inside=false;
-    if (y>=7){ const nx=(x-8)/5, ny=(y-10)/5; inside = nx*nx+ny*ny<=1; }
-    else { const half=y-2; if (half>=0 && Math.abs(x-8)<=half) inside=true; }
-    if (inside){ let c=base; if ((x-8)+(y-10)>3) c=dk; else if (x<7&&y<10) c=lt; buf[y][x]=c; }
-  }
-  outline(buf, shade(base,0.4));
-  setpx(buf,6,8,'#ffffff');
+function basePal(base){
+  return { o:shade(base,0.42), B:base, d:shade(base,0.72), l:shade(base,1.28),
+           w:'#ffffff', k:'#191325', W:'#ffffff' };
 }
-function flyShape(buf, base){
-  const dk = shade(base,0.7), lt = shade(base,1.3), ol = shade(base,0.4);
-  const wing=(cx,cy,rx,ry,c)=>{ for(let y=0;y<16;y++)for(let x=0;x<16;x++){ const nx=(x-cx)/rx,ny=(y-cy)/ry; if(nx*nx+ny*ny<=1) setpx(buf,x,y,c);} };
-  wing(4,6,3.6,3,base); wing(11,6,3.6,3,base);
-  wing(4.5,11,3,2.6,lt); wing(10.5,11,3,2.6,lt);
-  for (let y=4;y<13;y++) setpx(buf,8,y,dk);
-  outline(buf, ol);
-  setpx(buf,7,2,dk); setpx(buf,9,2,dk); setpx(buf,6,1,dk); setpx(buf,10,1,dk);
-}
-function eyes2(buf, xl, xr, y){
-  for (const x of [xl,xr]){
-    setpx(buf,x,y,'#ffffff'); setpx(buf,x+1,y,'#ffffff');
-    setpx(buf,x,y+1,'#ffffff'); setpx(buf,x+1,y+1,'#ffffff');
-    setpx(buf,x,y+1,'#1b1426');
-  }
-}
-
-/* ----- creature feature decorations ----- */
-const FEAT = {
-  earP(buf,base){ const dk=shade(base,0.8);
-    setpx(buf,4,1,dk); setpx(buf,4,2,base); setpx(buf,5,2,base); setpx(buf,5,3,base);
-    setpx(buf,11,1,dk); setpx(buf,11,2,base); setpx(buf,10,2,base); setpx(buf,10,3,base); },
-  earR(buf,base){ const dk=shade(base,0.8);
-    setpx(buf,4,2,base); setpx(buf,5,2,base); setpx(buf,4,3,base); setpx(buf,5,3,dk);
-    setpx(buf,10,2,base); setpx(buf,11,2,base); setpx(buf,11,3,base); setpx(buf,10,3,dk); },
-  tuft(buf,base){ const lt=shade(base,1.3); setpx(buf,7,1,lt); setpx(buf,8,1,lt); setpx(buf,8,0,lt); setpx(buf,7,2,lt); },
-  wing(buf,base){ const dk=shade(base,0.78);
-    setpx(buf,2,7,base); setpx(buf,3,6,base); setpx(buf,2,8,base); setpx(buf,3,8,dk); setpx(buf,3,7,base);
-    setpx(buf,13,7,base); setpx(buf,12,6,base); setpx(buf,13,8,base); setpx(buf,12,8,dk); setpx(buf,12,7,base); },
-  batw(buf,base){ const dk=shade(base,0.72);
-    [[1,5],[1,6],[1,7],[2,6],[2,7],[2,8],[3,7],[3,8]].forEach(([x,y])=>setpx(buf,x,y,base));
-    [[14,5],[14,6],[14,7],[13,6],[13,7],[13,8],[12,7],[12,8]].forEach(([x,y])=>setpx(buf,x,y,base));
-    setpx(buf,3,8,dk); setpx(buf,12,8,dk);
-    setpx(buf,5,2,base); setpx(buf,6,1,base); setpx(buf,10,2,base); setpx(buf,9,1,base); },
-  antler(buf){ const c='#caa36a', d='#9c7a4a';
-    setpx(buf,5,2,c); setpx(buf,5,1,c); setpx(buf,4,1,c); setpx(buf,5,0,d); setpx(buf,4,0,d);
-    setpx(buf,10,2,c); setpx(buf,10,1,c); setpx(buf,11,1,c); setpx(buf,10,0,d); setpx(buf,11,0,d);
-    setpx(buf,6,1,c); setpx(buf,9,1,c); },
-  horn(buf){ const c='#e9e2cf'; setpx(buf,8,0,c); setpx(buf,8,1,c); setpx(buf,7,2,c); },
-  beak(buf,base,f){ const c=f[1]||'#e8b24a', x=f[2]==null?7:f[2], y=f[3]==null?8:f[3];
-    setpx(buf,x,y,c); setpx(buf,x+1,y,c); setpx(buf,x,y+1,c); setpx(buf,x+1,y+1,shade(c,0.8)); },
-  tongue(buf){ setpx(buf,8,10,'#d24a5a'); setpx(buf,8,11,'#d24a5a'); setpx(buf,7,12,'#d24a5a'); setpx(buf,9,12,'#d24a5a'); },
-  tent(buf,base){ const dk=shade(base,0.78);
-    for (const x of [4,6,8,10,11]){ setpx(buf,x,12,base); setpx(buf,x,13,dk); }
-    setpx(buf,5,14,base); setpx(buf,8,14,dk); setpx(buf,10,14,base); },
-  mane(buf){ const c='#2a2036';
-    for (let y=2;y<10;y++){ setpx(buf,11,y,c); setpx(buf,12,y,shade(c,1.4)); }
-    setpx(buf,10,2,c); setpx(buf,9,1,c); },
-  shine(buf){ setpx(buf,6,5,'#ffffff'); },
-  eyesMany(buf){ const ps=[[5,6],[10,5],[7,9],[11,9],[4,10],[8,11]];
-    for (const [x,y] of ps){ setpx(buf,x,y,'#f6e98a'); setpx(buf,x,y+1,'#2a2036'); } },
-};
-
-const SHAPE = { round:[8,9,6,5.5], wide:[8,10,7,4.8], tall:[8,8,4.8,6.6], blob:[8,8,7,6.8] };
-const CREA = {
-  wunschling:  {color:'#f2c6dd', shape:'round', back:[['wing']],            front:[['beak','#e8b24a',7,9]], eye:[6,9,6]},
-  schattenpup: {color:'#7a5add', shape:'round', back:[['earP']],            front:[['beak','#3a2d4a',7,10]], eye:[6,9,7]},
-  mnemochick:  {color:'#39b9ac', shape:'round', back:[['tuft']],            front:[['beak','#e8b24a',7,9]], eye:[6,9,7]},
-  anxitoad:    {color:'#7a5add', shape:'wide',                              front:[['beak','#5a4a6a',7,11]], eye:[5,10,6]},
-  libidew:     {color:'#e06aa3', shape:'drop',                             front:[['shine']], eye:[6,9,9]},
-  reverie:     {color:'#2aa198', shape:'fly',  eye:false},
-  phobat:      {color:'#7a5add', shape:'round', back:[['batw']],            eye:[6,9,7]},
-  egolem:      {color:'#8a8f99', shape:'tall',                              eye:[6,9,7]},
-  iddra:       {color:'#e06aa3', shape:'tall',                             front:[['tongue']], eye:[6,9,6]},
-  superegon:   {color:'#cb7b2a', shape:'round', back:[['earP']],            front:[['beak','#e8b24a',7,9]], eye:[5,9,7]},
-  oedipuff:    {color:'#f0e6ef', shape:'round',                            front:[['beak','#e08a2a',7,8]], eye:[6,9,6]},
-  traumhirsch: {color:'#9c6b3f', shape:'tall', back:[['antler'],['earR']],  front:[['beak','#6a4a2a',7,9]], eye:[6,9,6]},
-  vergessling: {color:'#2aa198', shape:'round', back:[['tent']],            eye:[6,9,7]},
-  nachtmahr:   {color:'#6a52b8', shape:'tall', back:[['mane']],             front:[['beak','#3a2d4a',7,10]], eye:[6,9,6]},
-  unbewusste:  {color:'#211836', shape:'blob',                             front:[['eyesMany']], eye:false},
+const MONS = {
+wunschling:{c:'#e9dff0', x:{y:'#e8a13a'}, rows:[   // 🕊️ dove — a fledgling wish
+"                ",
+"      ooo       ",
+"     oBBBo      ",
+"    oBBBBBo     ",
+"  yyoBkBBBo     ",
+"    oBBBBBo     ",
+"   oBBBBBBBoo   ",
+"  oBllBBBBBddo  ",
+"  oBllBBBBBdddo ",
+"  oBlBBBBBBddo  ",
+"  ooBBBBBBdo    ",
+"   oBBBBBo      ",
+"    oB Bo       ",
+"    yy yy       ",
+"                ",
+"                "]},
+schattenpup:{c:'#7a5add', x:{}, rows:[   // 🐺 shadow wolf-pup
+"                ",
+"   o        o   ",
+"  odo      odo  ",
+"  oBdo    odBo  ",
+"  oBBooooooBBo  ",
+"  oBBBBBBBBBBo  ",
+"  oBkBBBBBBkBo  ",
+"  oBBBBBBBBBBo  ",
+"  oBBBllllBBBo  ",
+"   oBBldlBBo    ",
+"   oBBlllBBo    ",
+"    oBBBBBBo    ",
+"    oBBBBBBo    ",
+"    oBdBBdBo    ",
+"     o    o     ",
+"                "]},
+mnemochick:{c:'#f4c542', x:{y:'#e8821e', E:'#f5ecd6', z:'#d8c9a0'}, rows:[   // 🐣 chick hatching from a forgotten afternoon
+"                ",
+"      oo        ",
+"     oBBBo      ",
+"    oBBBBBo     ",
+"    oBkBkBo     ",
+"    oByyyBo     ",
+"   oBBBBBBBo    ",
+"   oBBBBBBBo    ",
+"  oEEEEEEEEEo   ",
+"  oEzEEzEEzEo   ",
+"  oEEEEEEEEEo   ",
+"  oEzEEEEzEEo   ",
+"   oEEEEEEEo    ",
+"    ooooooo     ",
+"                ",
+"                "]},
+anxitoad:{c:'#6fa45a', x:{W:'#ffffff'}, rows:[   // 🐸 toad croaking every postponed worry
+"                ",
+"    o      o    ",
+"   oWo    oWo   ",
+"  oWko    okWo  ",
+"  oWWooooooWWo  ",
+"  oBBBBBBBBBBo  ",
+" oBBBBBBBBBBBBo ",
+" oBdBBBBBBBBdBo ",
+" oBBkkkkkkkkBBo ",
+" oBBBBBBBBBBBBo ",
+"  oBBBBBBBBBBo  ",
+"  oBBBBBBBBBBo  ",
+"  oBBdBBBBdBBo  ",
+"  oBBo    oBBo  ",
+" ooo        ooo ",
+"                "]},
+libidew:{c:'#e06aa3', x:{}, rows:[   // 💧 a droplet of pure want
+"       o        ",
+"       oo       ",
+"      olBo      ",
+"      olBo      ",
+"     ollBBo     ",
+"     olBBBo     ",
+"    olBBBBBo    ",
+"    oBBBBBBo    ",
+"   oBBBBBBBBo   ",
+"   oBwkBBkwBo   ",
+"  oBBBBBBBBBBo  ",
+"  oBBBBBBBBBBo  ",
+"  oBBBddddBBBo  ",
+"   oBBBBBBBBo   ",
+"    oBBBBBBo    ",
+"     oooooo     "]},
+reverie:{c:'#2aa198', x:{}, rows:[   // 🦋 a daydream with wings
+"      o  o      ",
+"     o    o     ",
+"   o o    o o   ",
+"  oBBodddoBBo   ",
+" oBllBdkdBllBo  ",
+" oBlwlBdBlwlBo  ",
+" oBlllBdBlllBo  ",
+"  oBBBoBoBBBo   ",
+"  oBBBoBoBBBo   ",
+" oBdddBdBdddBo  ",
+" oBdwdBdBdwdBo  ",
+" oBdddBdBdddBo  ",
+"  oBBBodoBBBo   ",
+"   ooo d ooo    ",
+"       d        ",
+"                "]},
+phobat:{c:'#6a55c0', x:{w:'#ffffff'}, rows:[   // 🦇 bat roosting in the attic of the mind
+"                ",
+"  oo  oBBo  oo  ",
+" odBo oBBo oBdo ",
+" odBBooBBBooBBdo",
+"odBBBBoBBBoBBBBd",
+"odlBBBkBBkBBBldo",
+" odBBBBBBBBBBdo ",
+"  odBBwwwwBBdo  ",
+"   odBBBBBBdo   ",
+"    oddBBddo    ",
+"     odddo      ",
+"      oo        ",
+"                ",
+"                ",
+"                ",
+"                "]},
+egolem:{c:'#9398a1', x:{}, rows:[   // 🗿 a stone face that mediates
+"                ",
+"   oooooooooo   ",
+"   oBBBBBBBBo   ",
+"   oBBBBBBBBo   ",
+"   oBBBBBBBBo   ",
+"   oddddddddo   ",
+"   oddBBBBddo   ",
+"   oBBBllBBBo   ",
+"   oBBBllBBBo   ",
+"   oBBBllBBBo   ",
+"   oBBBllBBBo   ",
+"   oBBdddBBBo   ",
+"   oBBBBBBBBo   ",
+"   oddBBBBddo   ",
+"    oBBBBBBo    ",
+"     oooooo     "]},
+iddra:{c:'#d2487a', x:{y:'#e6402c'}, rows:[   // 🐍 it wants; that is all it does
+"    ooo         ",
+"   oBBBo        ",
+"   okBko        ",
+"  yoBBBo        ",
+" yy oBBo        ",
+"    oBBo        ",
+"   oBBBBo       ",
+"  oBBBBBBo      ",
+" oBBBBBBBBo     ",
+" oBBooooBBBo    ",
+" oBBo  oBBBo    ",
+" oBBo  oBBBo    ",
+" oBBBooBBBBo    ",
+"  oBBBBBBBBo    ",
+"   oBBBBBBo     ",
+"    oooooo      "]},
+superegon:{c:'#cb7b2a', x:{y:'#e8a13a', w:'#ffffff'}, rows:[   // 🦉 watches, judges, takes notes
+"   oo      oo   ",
+"  odBo    oBdo  ",
+"  oBBBooooBBBo  ",
+" oBBBBBBBBBBBBo ",
+" oBBBBBBBBBBBBo ",
+" oBwwwBBBBwwwBo ",
+" oBwkwByyBwkwBo ",
+" oBwwwByyBwwwBo ",
+" oBBBBByyBBBBBo ",
+" oBlBlBBBBlBlBo ",
+"  oBlBlBlBlBlo  ",
+"  oBBBBBBBBBBo  ",
+"   oBBBBBBBBo   ",
+"    yyo  oyy    ",
+"                ",
+"                "]},
+oedipuff:{c:'#eee3f0', x:{y:'#e0822a'}, rows:[   // 🦢 a complex creature; don't ask about its family
+"       ooo      ",
+"      oBBBo     ",
+"    yyoBkBo     ",
+"    y oBBBo     ",
+"      oBBo      ",
+"      oBBo      ",
+"     oBBo       ",
+"    oBBo        ",
+"   oBBBoooo     ",
+"  oBBBBBBBBo    ",
+" oBllBBBBBBBo   ",
+" oBlllBBBBBddo  ",
+" oBBBBBBBBBddo  ",
+"  oBBBBBBBBdo   ",
+"   oBBBBBBBo    ",
+"    oooooo      "]},
+traumhirsch:{c:'#9c6b3f', x:{m:'#caa36a', n:'#9c7a4a'}, rows:[   // 🦌 antlers that branch like a dream's meanings
+"  m   mm   m    ",
+"  mm  mm  mm    ",
+"   mm mm mm     ",
+"    mmmmmm      ",
+"   o mmmm o     ",
+"  odo mm odo    ",
+"  oBdo  odBo    ",
+"   oBBBBBBo     ",
+"   oBkBBkBo     ",
+"   oBBBBBBo     ",
+"   oBwwwwBo     ",
+"    oBwwBo      ",
+"    oBBBBo      ",
+"   oBBBBBBo     ",
+"   oBdBBdBo     ",
+"    o    o      "]},
+vergessling:{c:'#2f9fb0', x:{w:'#ffffff'}, rows:[   // 🐙 eight arms, each holding something you forgot
+"     oooooo     ",
+"   ooBBBBBBoo   ",
+"  oBBBBBBBBBBo  ",
+"  oBBBBBBBBBBo  ",
+"  oBwkBBBBwkBo  ",
+"  oBwwBBBBwwBo  ",
+"  oBBBBBBBBBBo  ",
+"  oBBBdBBdBBBo  ",
+" oBBoBoBoBoBBo  ",
+" oBo BoBoB oBo  ",
+"oBBo oBoBo oBBo ",
+"oBo  oBoBo  oBo ",
+"oBo  oB Bo  oBo ",
+" o   o   o   o  ",
+"                ",
+"                "]},
+nachtmahr:{c:'#6a52b8', x:{h:'#37295c', r:'#e23b5a'}, rows:[   // 🐴 the original night-mare
+"   o      o     ",
+"  oBo    oBo    ",
+"  oBdo  odBo    ",
+"  oBBhhhhhhBo   ",
+" oBBBhhhhhhBBo  ",
+" oBrBBBBBBBrBo  ",
+" oBBBBBBBBBBBo  ",
+" oBBBBBBBBBBBo  ",
+"  oBBBBBBBBBo   ",
+"  oBBBBBBBBBo   ",
+"   oBBBBBBBo    ",
+"   oBlBBBlBo    ",
+"   oBkBBBkBo    ",
+"   oBBBBBBBo    ",
+"    oBBBBBo     ",
+"     ooooo      "]},
+unbewusste:{c:'#2a2140', x:{d:'#19112e', e:'#f6e98a'}, rows:[   // 🌑 the vast dark beneath every mind
+"     oooooo     ",
+"   ooBBBBBBoo   ",
+"  oBBdBBBBdBBo  ",
+" oBeBBBBBBBeBBo ",
+" oBBBBdeBBBBBBo ",
+"oBeBBBBBBBeBBBdo",
+"oBBBBeBBBBBBBBBo",
+"oBdBBBBBeBBBeBBo",
+"oBBeBBBBBBBBeBBo",
+"oBBBBBeBBBBBBBdo",
+" oBeBBBBBBBeBBo ",
+" oBBBdBBeBBBBBo ",
+"  oBBeBBBBBBBo  ",
+"   ooBBBBBBoo   ",
+"     oooooo     ",
+"                "]},
 };
 
 const monBufCache = {};
 function buildCreature(sp){
-  const d = CREA[sp], buf = makeBuf(16), base = d.color;
-  (d.back||[]).forEach(f => FEAT[f[0]] && FEAT[f[0]](buf, base, f));
-  if (d.shape==='fly') flyShape(buf, base);
-  else if (d.shape==='drop') dropShape(buf, base);
-  else { const s = SHAPE[d.shape]; ell(buf, s[0], s[1], s[2], s[3], base); outline(buf, shade(base,0.4)); }
-  (d.front||[]).forEach(f => FEAT[f[0]] && FEAT[f[0]](buf, base, f));
-  if (d.eye !== false){ const e = d.eye; eyes2(buf, e[0], e[1], e[2]); }
+  const m = MONS[sp], buf = makeBuf(16);
+  paint(buf, m.rows, Object.assign(basePal(m.c), m.x||{}));
   return buf;
 }
+
 function drawCreature(sp, cx, cy, P, flip){
   const buf = monBufCache[sp] || (monBufCache[sp] = buildCreature(sp));
   blitBuf(buf, Math.round(cx - 8*P), Math.round(cy - 8*P), P, !!flip);
