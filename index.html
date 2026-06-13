@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Traumfänger — Young Freud and the Dream Catchers</title>
+<style>
+  html,body{margin:0;height:100%;background:#171225;display:flex;align-items:center;justify-content:center;flex-direction:column;font-family:Georgia,serif;color:#cfc4e8}
+  canvas{border:4px solid #4a3b6b;border-radius:6px;box-shadow:0 0 40px #000;image-rendering:pixelated;background:#000}
+  p.hint{margin:10px 0 0;font-size:14px;opacity:.7}
+</style>
+</head>
+<body>
+<canvas id="c" width="640" height="480"></canvas>
+<p class="hint">Arrows/WASD: move &nbsp;·&nbsp; Z/Enter: confirm &amp; talk &nbsp;·&nbsp; X: journal / back</p>
+<script>
+"use strict";
+/* ============================================================
+   TRAUMFÄNGER — Young Freud and the Dream Catchers
+   A Pokémon-like: Vienna, 1885. Collect dreams, conquer
+   nightmares, help patients, invent psychoanalysis.
+   ============================================================ */
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const W = 640, H = 480;
+const TILE = 40, VW = 16, VH = 12;
+const MW = 36, MH = 28;
+
+/* ---------------- Types & effectiveness ---------------- */
+// DESIRE > FEAR > MEMORY > SYMBOL > DESIRE
+const TYPE_COLOR = { DESIRE:'#e06aa3', FEAR:'#7a5add', MEMORY:'#2aa198', SYMBOL:'#cb7b2a' };
+const BEATS = { DESIRE:'FEAR', FEAR:'MEMORY', MEMORY:'SYMBOL', SYMBOL:'DESIRE' };
+function effMult(att, def){
+  if (BEATS[att] === def) return 1.5;
+  if (BEATS[def] === att) return 0.67;
+  return 1;
+}
+
+/* ---------------- Moves ---------------- */
+const MOVES = {
+  'Wishful Glance':   {type:'DESIRE', power:40, acc:100},
+  'Repressed Urge':   {type:'DESIRE', power:55, acc:95},
+  'Cathexis':         {type:'DESIRE', power:65, acc:100},
+  'Wish Fulfillment': {type:'DESIRE', power:85, acc:90},
+  'Shiver':           {type:'FEAR',   power:40, acc:100},
+  'Night Terror':     {type:'FEAR',   power:55, acc:95},
+  'Uncanny Stare':    {type:'FEAR',   power:65, acc:100},
+  'Dread Howl':       {type:'FEAR',   power:85, acc:90},
+  'Oceanic Dread':    {type:'FEAR',   power:95, acc:85},
+  'Reverie Touch':    {type:'MEMORY', power:40, acc:100},
+  'Free Association': {type:'MEMORY', power:55, acc:95},
+  'Screen Memory':    {type:'MEMORY', power:65, acc:100},
+  'Total Recall':     {type:'MEMORY', power:85, acc:90},
+  'Symbol Spark':     {type:'SYMBOL', power:40, acc:100},
+  'Dream Logic':      {type:'SYMBOL', power:55, acc:95},
+  'Condensation':     {type:'SYMBOL', power:65, acc:100},
+  'Manifest Content': {type:'SYMBOL', power:85, acc:90},
+};
+
+/* ---------------- Dream species ---------------- */
+const SPECIES = {
+  wunschling:  {name:'Wunschling',  type:'DESIRE', emoji:'🕊️', base:{hp:45,atk:55,def:40,spd:60},
+    moves:[[1,'Wishful Glance'],[6,'Repressed Urge'],[11,'Cathexis'],[16,'Wish Fulfillment']],
+    desc:'A fledgling wish. Flutters toward whatever the heart hides.'},
+  schattenpup: {name:'Schattenpup', type:'FEAR',   emoji:'🐺', base:{hp:50,atk:60,def:45,spd:50},
+    moves:[[1,'Shiver'],[6,'Night Terror'],[11,'Uncanny Stare'],[16,'Dread Howl']],
+    desc:'A shadow that learned to wag. Loyal to those who face it.'},
+  mnemochick:  {name:'Mnemochick',  type:'MEMORY', emoji:'🐣', base:{hp:55,atk:50,def:50,spd:45},
+    moves:[[1,'Reverie Touch'],[6,'Free Association'],[11,'Screen Memory'],[16,'Total Recall']],
+    desc:'Hatched from a forgotten afternoon. Remembers everything.'},
+  anxitoad:    {name:'Anxitoad',    type:'FEAR',   emoji:'🐸', base:{hp:50,atk:50,def:45,spd:40},
+    moves:[[1,'Shiver'],[7,'Night Terror']],
+    desc:'Croaks every worry you ever postponed.'},
+  libidew:     {name:'Libidew',     type:'DESIRE', emoji:'💧', base:{hp:45,atk:52,def:38,spd:55},
+    moves:[[1,'Wishful Glance'],[7,'Repressed Urge']],
+    desc:'A droplet of pure want. Evaporates if examined too directly.'},
+  reverie:     {name:'Reverie',     type:'MEMORY', emoji:'🦋', base:{hp:42,atk:48,def:40,spd:62},
+    moves:[[1,'Reverie Touch'],[7,'Free Association'],[12,'Screen Memory']],
+    desc:'A daydream with wings. Hard to pin down.'},
+  phobat:      {name:'Phobat',      type:'FEAR',   emoji:'🦇', base:{hp:40,atk:55,def:35,spd:65},
+    moves:[[1,'Shiver'],[7,'Night Terror'],[12,'Uncanny Stare']],
+    desc:'Roosts in the attic of the mind.'},
+  egolem:      {name:'Egolem',      type:'SYMBOL', emoji:'🗿', base:{hp:65,atk:55,def:70,spd:25},
+    moves:[[1,'Symbol Spark'],[8,'Dream Logic'],[13,'Condensation']],
+    desc:'A stone face that mediates between all the others.'},
+  iddra:       {name:'Iddra',       type:'DESIRE', emoji:'🐍', base:{hp:55,atk:65,def:45,spd:55},
+    moves:[[1,'Wishful Glance'],[8,'Repressed Urge'],[12,'Cathexis']],
+    desc:'It wants. That is all it does, and it does it well.'},
+  superegon:   {name:'Superegon',   type:'SYMBOL', emoji:'🦉', base:{hp:55,atk:60,def:60,spd:50},
+    moves:[[1,'Symbol Spark'],[8,'Dream Logic'],[12,'Condensation']],
+    desc:'Watches. Judges. Takes notes in impeccable handwriting.'},
+  oedipuff:    {name:'Oedipuff',    type:'DESIRE', emoji:'🦢', base:{hp:60,atk:58,def:50,spd:48},
+    moves:[[1,'Wishful Glance'],[8,'Repressed Urge'],[14,'Wish Fulfillment']],
+    desc:'A complex creature. Best not to ask about its family.'},
+  traumhirsch: {name:'Traumhirsch', type:'SYMBOL', emoji:'🦌', base:{hp:60,atk:62,def:55,spd:58},
+    moves:[[1,'Symbol Spark'],[9,'Dream Logic'],[14,'Manifest Content']],
+    desc:'Its antlers branch like the meanings of a single dream.'},
+  vergessling: {name:'Vergessling', type:'MEMORY', emoji:'🐙', base:{hp:58,atk:55,def:52,spd:40},
+    moves:[[1,'Reverie Touch'],[8,'Free Association'],[13,'Total Recall']],
+    desc:'Eight arms, each holding something you swore you forgot.'},
+  nachtmahr:   {name:'Nachtmahr',   type:'FEAR',   emoji:'🐴', base:{hp:60,atk:68,def:50,spd:60},
+    moves:[[1,'Night Terror'],[9,'Uncanny Stare'],[14,'Dread Howl']],
+    desc:'The original night-mare. Gallops through troubled sleep.'},
+  unbewusste:  {name:'Das Unbewusste', type:'FEAR', emoji:'🌑', base:{hp:80,atk:72,def:60,spd:55},
+    moves:[[1,'Uncanny Stare'],[1,'Dread Howl'],[1,'Manifest Content'],[14,'Oceanic Dread']],
+    desc:'The vast dark beneath every mind. It has been waiting.'},
+};
+
+const STARTERS = ['wunschling','schattenpup','mnemochick'];
+
+const ENCOUNTERS = {
+  m: { lv:[3,6],  pool:['anxitoad','anxitoad','libidew','libidew','reverie','reverie','phobat','egolem'] },
+  M: { lv:[9,12], pool:['iddra','iddra','superegon','superegon','oedipuff','traumhirsch','traumhirsch','vergessling','nachtmahr'] },
+};
+
+/* ---------------- Game state ---------------- */
+let state = 'title';   // title | starter | world | dialog | battle | menu | ending
+let map = [];
+let player = { x:17, y:22, dir:'up' };
+let camX = 0, camY = 0;
+let party = [];
+let items = { notebook:5, leather:0, coffee:2 };
+const ITEM_DEFS = {
+  notebook:{label:'Notebook',       desc:'Sketch a wild dream to capture it.'},
+  leather: {label:'Leather Journal',desc:'A finer book. Captures dreams more surely.'},
+  coffee:  {label:'Strong Coffee',  desc:'Restores 40 HP to your active dream.'},
+};
+let flags = { bertha:false, lanzer:false, cacilie:false, gateOpen:false, boss:false };
+let journalTotal = 0;       // dreams ever captured
+let starterIdx = 0;
+let dialog = null;          // {lines:[], idx, cb}
+let battle = null;
+let keysDown = {};
+let moveCooldown = 0;
+let lastT = 0;
+let timeMs = 0;
+
+const helpedCount = () => (flags.bertha?1:0)+(flags.lanzer?1:0)+(flags.cacilie?1:0);
+
+/* ---------------- NPCs ---------------- */
+const NPCS = [
+  { id:'brucke', x:18, y:21, emoji:'🧓', name:'Prof. Brücke', kind:'mentor' },
+  { id:'bertha', x:13, y:21, emoji:'👩', name:'Bertha', kind:'patient', flag:'bertha',
+    intro:["Bertha: Herr Freud... every night a black mare gallops through my sleep and I wake unable to speak.",
+           "Bertha: The doctors call it hysteria. I call it a haunting. Please — face it for me!"],
+    party:[['nachtmahr',8]],
+    outro:["The Nachtmahr dissolves into morning light.",
+           "Bertha: I can breathe again! Talking of it... helped. You should write that down.",
+           "She presses 3 Notebooks and 2 Leather Journals into your hands."],
+    reward:{notebook:3, leather:2},
+    thanks:"Bertha: I slept the whole night through. The 'talking cure', I shall call it." },
+  { id:'lanzer', x:30, y:15, emoji:'🤵', name:'Herr Lanzer', kind:'patient', flag:'lanzer',
+    intro:["Lanzer: I cannot enter the Prater anymore. Things with wings... things that croak... they know what I'm thinking!",
+           "Lanzer: They circle my dreams in pairs. Drive them off, I beg you!"],
+    party:[['phobat',9],['anxitoad',10]],
+    outro:["The wood falls quiet. Lanzer steps out from behind the tree he was not hiding behind.",
+           "Lanzer: Obsession, you say? Named, it shrinks. Take these — I shan't need the caffeine to stay awake now.",
+           "You receive 3 Strong Coffees and 3 Notebooks."],
+    reward:{coffee:3, notebook:3},
+    thanks:"Lanzer: I walked the whole park today. Twice. Because I wanted to, not because I had to." },
+  { id:'cacilie', x:5, y:18, emoji:'👵', name:'Frau Cäcilie', kind:'patient', flag:'cacilie',
+    intro:["Cäcilie: Young man, my memories have come loose. They flutter about the park and squeeze my heart at tea time.",
+           "Cäcilie: Catch them, conquer them — I don't care which. But make them explain themselves!"],
+    party:[['reverie',10],['vergessling',11]],
+    outro:["The loosed memories settle like dust in sunlight.",
+           "Cäcilie: Ah. That summer in Baden. So THAT'S what it meant. Symbols, Herr Freud! Everything is symbols!",
+           "She gifts you 2 Leather Journals and 2 Strong Coffees."],
+    reward:{leather:2, coffee:2},
+    thanks:"Cäcilie: My memories visit politely now, and always knock first." },
+  { id:'guard', x:17, y:9, emoji:'💂', name:'Gatekeeper', kind:'guard' },
+  { id:'anna', x:22, y:22, emoji:'🧒', name:'Little Anna', kind:'flavor',
+    lines:["Anna: When I grow up I want to dream professionally, just like you!"] },
+  { id:'cafe', x:12, y:23, emoji:'🧔', name:'Café Regular', kind:'flavor',
+    lines:["Café Regular: Sometimes a cigar is just a cigar.",
+           "Café Regular: ...but a cigar that flies through your dreams reciting your mother's name? See a specialist."] },
+];
+
+/* ---------------- Map ---------------- */
+function genMap(){
+  map = Array.from({length:MH}, () => Array(MW).fill('g'));
+  const rect = (x,y,w,h,c) => { for(let j=y;j<y+h;j++) for(let i=x;i<x+w;i++) map[j][i]=c; };
+  // tree border
+  rect(0,0,MW,1,'t'); rect(0,MH-1,MW,1,'t'); rect(0,0,1,MH,'t'); rect(MW-1,0,1,MH,'t');
+  // Unconscious Depths (north)
+  rect(1,1,34,7,'D');
+  rect(4,2,6,3,'M'); rect(25,2,7,3,'M'); rect(10,5,5,2,'M'); rect(21,5,6,2,'M');
+  map[2][17] = 'a';
+  // fence with gate
+  rect(1,8,34,1,'f'); map[8][17] = 'G';
+  // paths
+  rect(17,9,1,17,'.');
+  rect(3,16,31,1,'.');
+  rect(10,20,16,5,'.');           // town plaza
+  // clinic (Berggasse) + house
+  rect(12,17,6,3,'b'); map[19][14] = 'd';
+  rect(21,17,5,3,'b');
+  // pond
+  rect(27,21,5,3,'w');
+  // dream mists (encounter zones)
+  rect(3,11,5,4,'m'); rect(2,19,5,4,'m');
+  rect(28,11,6,4,'m'); rect(29,18,5,2,'m');
+  // scattered trees
+  [[6,9],[10,12],[24,11],[26,13],[8,18],[27,17],[5,24],[31,24],[12,10],[22,9]]
+    .forEach(([x,y]) => { if(map[y][x]==='g') map[y][x]='t'; });
+}
+
+const SOLID = { t:1, w:1, b:1, f:1 };
+function isWalkable(x,y){
+  if (x<0||y<0||x>=MW||y>=MH) return false;
+  const c = map[y][x];
+  if (SOLID[c]) return false;
+  if (c==='G' && !flags.gateOpen) return false;
+  if (NPCS.some(n => n.x===x && n.y===y)) return false;
+  return true;
+}
+
+/* ---------------- Dream creatures ---------------- */
+function calcStats(sp, lvl){
+  const b = SPECIES[sp].base;
+  return {
+    maxhp: Math.floor(2*b.hp*lvl/100) + lvl + 10,
+    atk:   Math.floor(2*b.atk*lvl/100) + 5,
+    def:   Math.floor(2*b.def*lvl/100) + 5,
+    spd:   Math.floor(2*b.spd*lvl/100) + 5,
+  };
+}
+function movesAtLevel(sp, lvl){
+  return SPECIES[sp].moves.filter(([l]) => l<=lvl).map(([,m]) => m).slice(-4);
+}
+function makeMon(sp, lvl){
+  const stats = calcStats(sp, lvl);
+  return { sp, lvl, xp:0, hp:stats.maxhp, stats, moves:movesAtLevel(sp,lvl) };
+}
+const monName = m => SPECIES[m.sp].name;
+const xpNeeded = lvl => lvl*40;
+
+function gainXp(mon, amount, msgs){
+  msgs.push(`${monName(mon)} gains ${amount} insight.`);
+  mon.xp += amount;
+  while (mon.xp >= xpNeeded(mon.lvl) && mon.lvl < 30){
+    mon.xp -= xpNeeded(mon.lvl);
+    mon.lvl++;
+    const old = mon.stats;
+    mon.stats = calcStats(mon.sp, mon.lvl);
+    mon.hp = Math.min(mon.stats.maxhp, mon.hp + (mon.stats.maxhp - old.maxhp));
+    msgs.push(`${monName(mon)} grew to level ${mon.lvl}!`);
+    for (const [l, mv] of SPECIES[mon.sp].moves){
+      if (l === mon.lvl && !mon.moves.includes(mv)){
+        if (mon.moves.length >= 4){
+          msgs.push(`${monName(mon)} forgot ${mon.moves[0]}...`);
+          mon.moves.shift();
+        }
+        mon.moves.push(mv);
+        msgs.push(`${monName(mon)} learned ${mv}!`);
+      }
+    }
+  }
+}
+
+/* ---------------- Dialog ---------------- */
+function showDialog(lines, cb){
+  dialog = { lines: lines.slice(), idx:0, cb: cb || null };
+  state = 'dialog';
+}
+function advanceDialog(){
+  dialog.idx++;
+  if (dialog.idx >= dialog.lines.length){
+    const cb = dialog.cb;
+    dialog = null;
+    state = 'world';
+    if (cb) cb();
+  }
+}
+
+/* ---------------- Battle ---------------- */
+function firstHealthy(){ return party.findIndex(m => m.hp > 0); }
+
+function startBattle(opts){
+  battle = {
+    wild: opts.wild, enemyParty: opts.enemyParty, enemyIdx: 0,
+    trainerName: opts.trainerName || null,
+    onWin: opts.onWin || null,
+    activeIdx: firstHealthy(),
+    phase:'msg', msgs:[], msgCb:null,
+    menuIdx:0, moveIdx:0, partyIdx:0, itemIdx:0, forced:false,
+  };
+  state = 'battle';
+  const intro = opts.wild
+    ? [`A wild ${monName(eMon())} drifts close!`]
+    : [`${opts.trainerName}'s nightmare takes shape — ${monName(eMon())}!`];
+  bmsg([...intro, `Go, ${monName(pMon())}!`], () => { battle.phase = 'menu'; });
+}
+const pMon = () => party[battle.activeIdx];
+const eMon = () => battle.enemyParty[battle.enemyIdx];
+
+function bmsg(lines, cb){
+  battle.msgs = lines.slice();
+  battle.msgCb = cb || null;
+  battle.phase = 'msg';
+}
+function advanceBmsg(){
+  battle.msgs.shift();
+  if (battle.msgs.length === 0){
+    const cb = battle.msgCb;
+    battle.msgCb = null;
+    if (cb) cb(); else battle.phase = 'menu';
+  }
+}
+
+function calcDamage(atk, def, mvName){
+  const mv = MOVES[mvName];
+  const eff = effMult(mv.type, SPECIES[def.sp].type);
+  const crit = Math.random() < 1/16 ? 1.5 : 1;
+  const base = ((2*atk.lvl/5 + 2) * mv.power * atk.stats.atk / Math.max(1, def.stats.def)) / 50 + 2;
+  const dmg = Math.max(1, Math.floor(base * eff * crit * (0.85 + Math.random()*0.15)));
+  return { dmg, eff, crit: crit > 1 };
+}
+
+function attack(attacker, defender, mvName, who, after){
+  const owner = who === 'p' ? 'Your' : (battle.wild ? 'Wild' : 'Enemy');
+  const lines = [`${owner} ${monName(attacker)} used ${mvName}!`];
+  if (Math.random()*100 > MOVES[mvName].acc){
+    lines.push('...but it slipped through the dream like smoke!');
+    bmsg(lines, after);
+    return;
+  }
+  const r = calcDamage(attacker, defender, mvName);
+  defender.hp = Math.max(0, defender.hp - r.dmg);
+  if (r.crit) lines.push('A piercing insight!');
+  if (r.eff > 1) lines.push("It strikes the dream's weak point!");
+  if (r.eff < 1) lines.push('The dream barely notices...');
+  bmsg(lines, after);
+}
+
+function enemyMove(){
+  const ms = eMon().moves;
+  return ms[Math.floor(Math.random()*ms.length)];
+}
+
+function doRound(playerMoveName){
+  const p = pMon(), e = eMon();
+  const acts = p.stats.spd >= e.stats.spd
+    ? [['p', playerMoveName], ['e', enemyMove()]]
+    : [['e', enemyMove()], ['p', playerMoveName]];
+  runActs(acts, 0);
+}
+function enemyOnlyTurn(){ runActs([['e', enemyMove()]], 0); }
+
+function runActs(acts, i){
+  if (i >= acts.length){ battle.phase = 'menu'; return; }
+  const [who, mv] = acts[i];
+  const atk = who === 'p' ? pMon() : eMon();
+  const def = who === 'p' ? eMon() : pMon();
+  if (atk.hp <= 0){ runActs(acts, i+1); return; }
+  attack(atk, def, mv, who, () => {
+    if (def.hp <= 0) handleFaint(who === 'p' ? 'e' : 'p');
+    else runActs(acts, i+1);
+  });
+}
+
+function handleFaint(side){
+  if (side === 'e'){
+    const e = eMon();
+    const msgs = [`${battle.wild ? 'Wild' : 'Enemy'} ${monName(e)} dissolves into mist!`];
+    gainXp(pMon(), e.lvl * 22 * (battle.wild ? 1 : 2), msgs);
+    bmsg(msgs, () => {
+      battle.enemyIdx++;
+      if (!battle.wild && battle.enemyIdx < battle.enemyParty.length){
+        bmsg([`${battle.trainerName}'s next nightmare stirs — ${monName(eMon())}!`],
+             () => { battle.phase = 'menu'; });
+      } else {
+        endBattle(true);
+      }
+    });
+  } else {
+    const msgs = [`Your ${monName(pMon())} is overwhelmed by the dream!`];
+    if (party.some(m => m.hp > 0)){
+      bmsg(msgs, () => { battle.forced = true; battle.partyIdx = firstHealthy(); battle.phase = 'party'; });
+    } else {
+      bmsg([...msgs, 'All your dreams have faded...'], () => blackout());
+    }
+  }
+}
+
+function endBattle(won){
+  const onWin = battle.onWin;
+  battle = null;
+  state = 'world';
+  if (won && onWin) onWin();
+}
+
+function blackout(){
+  battle = null;
+  party.forEach(m => { m.hp = m.stats.maxhp; });
+  player.x = 14; player.y = 20; player.dir = 'up';
+  state = 'world';
+  showDialog(['You drift back to the clinic on Berggasse...',
+              "Martha: Rest, Sigi. Your dreams are safe with me."]);
+}
+
+function tryCapture(itemKey){
+  if (!battle.wild){
+    bmsg(["A patient's nightmare cannot be captured — it must be confronted!"],
+         () => { battle.phase = 'menu'; });
+    return;
+  }
+  if (items[itemKey] <= 0){
+    bmsg([`You have no ${ITEM_DEFS[itemKey].label} left!`], () => { battle.phase = 'items'; });
+    return;
+  }
+  items[itemKey]--;
+  const e = eMon();
+  let chance = 0.2 + (1 - e.hp / e.stats.maxhp) * 0.65;
+  if (itemKey === 'leather') chance = Math.min(0.97, chance * 1.45);
+  if (Math.random() < chance){
+    journalTotal++;
+    const caught = makeMon(e.sp, e.lvl);
+    caught.hp = e.hp;
+    const lines = ['You write feverishly, ink racing the dawn...',
+                   `The dream of ${monName(e)} is bound to your journal!`];
+    if (party.length < 6){ party.push(caught); }
+    else lines.push('Your satchel is full — it is filed in your archive at the clinic.');
+    bmsg(lines, () => endBattle(false));
+  } else {
+    bmsg(['You sketch quickly, but the dream wriggles free of the page!'],
+         () => enemyOnlyTurn());
+  }
+}
+
+function useCoffee(){
+  if (items.coffee <= 0){
+    bmsg(['No coffee left! Vienna weeps.'], () => { battle.phase = 'items'; });
+    return;
+  }
+  items.coffee--;
+  const p = pMon();
+  p.hp = Math.min(p.stats.maxhp, p.hp + 40);
+  bmsg([`${monName(p)} perks up! It recovered some HP.`], () => enemyOnlyTurn());
+}
+
+function tryFlee(){
+  if (!battle.wild){
+    bmsg(['You cannot abandon a patient mid-session!'], () => { battle.phase = 'menu'; });
+    return;
+  }
+  const chance = Math.max(0.3, 0.55 + (pMon().stats.spd - eMon().stats.spd) * 0.04);
+  if (Math.random() < chance){
+    bmsg(['You close your eyes and let the dream pass over you...'], () => endBattle(false));
+  } else {
+    bmsg(['The dream blocks your waking!'], () => enemyOnlyTurn());
+  }
+}
+
+function switchTo(idx){
+  const wasForced = battle.forced;
+  battle.forced = false;
+  battle.activeIdx = idx;
+  bmsg([`Go, ${monName(pMon())}!`], () => {
+    if (wasForced) battle.phase = 'menu';
+    else enemyOnlyTurn();
+  });
+}
+
+/* ---------------- World interactions ---------------- */
+function startWildBattle(zone){
+  const z = ENCOUNTERS[zone];
+  const sp = z.pool[Math.floor(Math.random()*z.pool.length)];
+  const lvl = z.lv[0] + Math.floor(Math.random()*(z.lv[1]-z.lv[0]+1));
+  startBattle({ wild:true, enemyParty:[makeMon(sp,lvl)] });
+}
+
+function startPatientBattle(npc){
+  startBattle({
+    wild:false,
+    trainerName: npc.name,
+    enemyParty: npc.party.map(([sp,lv]) => makeMon(sp,lv)),
+    onWin: () => {
+      flags[npc.flag] = true;
+      for (const k in npc.reward) items[k] = (items[k]||0) + npc.reward[k];
+      showDialog(npc.outro);
+    },
+  });
+}
+
+function startFinalBattle(){
+  startBattle({
+    wild:false,
+    trainerName:'The Depths',
+    enemyParty:[makeMon('unbewusste',14)],
+    onWin: () => { flags.boss = true; state = 'ending'; },
+  });
+}
+
+function talkTo(npc){
+  if (npc.kind === 'flavor'){ showDialog(npc.lines); return; }
+  if (npc.kind === 'mentor'){
+    if (party.length === 0){
+      showDialog(["Brücke: Ah, young Freud! Vienna's sleep grows troubled — wild dreams roam the parks and nightmares grip my patients.",
+                  'Brücke: I have studied three dreams long enough to tame them. One shall be your first companion.',
+                  'Brücke: Choose wisely — then conquer dreams, fill your journal, and help the people of this city.'],
+                 () => { state = 'starter'; starterIdx = 0; });
+    } else if (helpedCount() < 3){
+      showDialog(['Brücke: Three patients need you: Bertha by my clinic, Herr Lanzer in the eastern woods, Frau Cäcilie in the west park.',
+                  'Brücke: Help all three, and the gatekeeper may let you descend to the source of it all.',
+                  'Brücke: Step into the violet mists to find wild dreams. My clinic door heals your companions and restocks your satchel.']);
+    } else if (!flags.boss){
+      showDialog(['Brücke: All three sleep soundly. Whatever stirs beneath the north gate — it is yours to face now, Herr Doktor.']);
+    } else {
+      showDialog(['Brücke: They will write your name beside Copernicus and Darwin. Third blow to human vanity, and the kindest one.']);
+    }
+    return;
+  }
+  if (npc.kind === 'guard'){
+    if (flags.gateOpen){ showDialog(['Gatekeeper: Mind the dark down there. It minds you back.']); return; }
+    if (helpedCount() < 3){
+      showDialog([`Gatekeeper: Beyond this gate lie the Unconscious Depths. None may pass unprepared.`,
+                  `Gatekeeper: Prove your insight — ease the suffering of Vienna's three troubled patients. (${helpedCount()}/3 helped)`]);
+    } else {
+      showDialog(['Gatekeeper: Bertha... Lanzer... Cäcilie... all dreaming peacefully. Remarkable.',
+                  'Gatekeeper: Very well. The Depths will see you now.'],
+                 () => {
+                   flags.gateOpen = true;
+                   map[8][17] = '.';
+                   npc.x = 15; npc.y = 9;
+                 });
+    }
+    return;
+  }
+  if (npc.kind === 'patient'){
+    if (flags[npc.flag]){ showDialog([npc.thanks]); return; }
+    if (party.length === 0){ showDialog([`${npc.name}: You look as lost as I feel. Speak to Professor Brücke first, young man.`]); return; }
+    showDialog(npc.intro, () => startPatientBattle(npc));
+  }
+}
+
+function interact(){
+  const [dx,dy] = DIRS[player.dir];
+  const tx = player.x + dx, ty = player.y + dy;
+  const npc = NPCS.find(n => n.x===tx && n.y===ty);
+  if (npc) talkTo(npc);
+}
+
+function stepEvent(){
+  const c = map[player.y][player.x];
+  if (c === 'd'){
+    const needHeal = party.some(m => m.hp < m.stats.maxhp);
+    const needStock = items.notebook < 8 || items.coffee < 3;
+    if (needHeal || needStock){
+      party.forEach(m => { m.hp = m.stats.maxhp; });
+      items.notebook = Math.max(items.notebook, 8);
+      items.coffee = Math.max(items.coffee, 3);
+      showDialog(['Martha tends to your dreams and refills your satchel.',
+                  'Martha: Notebooks topped up, coffee strong enough to wake the dead. Off you go.']);
+    }
+    return;
+  }
+  if (c === 'a'){
+    if (flags.boss){ showDialog(['The altar is cold. The Depths are quiet now — merely deep.']); return; }
+    if (party.length === 0) return;
+    showDialog(['The mist parts. Something vast turns over in its sleep, far below...',
+                'A voice without a mouth: "YOU HAVE READ MY SMALLER PAGES. NOW READ ME."',
+                'DAS UNBEWUSSTE rises!'],
+               () => startFinalBattle());
+    return;
+  }
+  if ((c === 'm' || c === 'M') && party.length > 0){
+    const rate = c === 'm' ? 0.13 : 0.17;
+    if (Math.random() < rate) startWildBattle(c);
+  }
+}
+
+/* ---------------- Input ---------------- */
+const DIRS = { up:[0,-1], down:[0,1], left:[-1,0], right:[1,0] };
+const KEY_DIR = { arrowup:'up', arrowdown:'down', arrowleft:'left', arrowright:'right', w:'up', s:'down', a:'left', d:'right' };
+
+function tryMove(dir){
+  player.dir = dir;
+  const [dx,dy] = DIRS[dir];
+  const nx = player.x + dx, ny = player.y + dy;
+  if (isWalkable(nx,ny)){
+    player.x = nx; player.y = ny;
+    stepEvent();
+  }
+}
+
+function handleKey(k){
+  const confirm = (k === 'z' || k === 'enter');
+  const back = k === 'x';
+
+  if (state === 'title'){ if (confirm) newGame(); return; }
+
+  if (state === 'ending'){ if (confirm) state = 'world'; return; }
+
+  if (state === 'starter'){
+    if (k === 'arrowleft' || k === 'a') starterIdx = (starterIdx+2)%3;
+    if (k === 'arrowright' || k === 'd') starterIdx = (starterIdx+1)%3;
+    if (confirm){
+      const sp = STARTERS[starterIdx];
+      party.push(makeMon(sp, 5));
+      journalTotal++;
+      state = 'world';
+      showDialog([`Brücke: ${SPECIES[sp].name}! ${SPECIES[sp].desc}`,
+                  'Brücke: It will fight beside you. Wild dreams weaken when battled — sketch them in a Notebook to capture them.',
+                  'Brücke: Now go. Vienna talks in its sleep, and somebody ought to listen.']);
+    }
+    return;
+  }
+
+  if (state === 'dialog'){ if (confirm) advanceDialog(); return; }
+
+  if (state === 'menu'){ if (confirm || back) state = 'world'; return; }
+
+  if (state === 'world'){
+    if (confirm) interact();
+    if (back) state = 'menu';
+    return;
+  }
+
+  if (state === 'battle'){
+    const b = battle;
+    if (b.phase === 'msg'){ if (confirm) advanceBmsg(); return; }
+
+    if (b.phase === 'menu'){
+      if (k==='arrowleft'||k==='a')  b.menuIdx = b.menuIdx % 2 === 1 ? b.menuIdx-1 : b.menuIdx+1;
+      if (k==='arrowright'||k==='d') b.menuIdx = b.menuIdx % 2 === 0 ? b.menuIdx+1 : b.menuIdx-1;
+      if (k==='arrowup'||k==='w')    b.menuIdx = (b.menuIdx+2)%4;
+      if (k==='arrowdown'||k==='s')  b.menuIdx = (b.menuIdx+2)%4;
+      if (confirm){
+        if (b.menuIdx===0){ b.moveIdx = 0; b.phase = 'moves'; }
+        if (b.menuIdx===1){ b.itemIdx = 0; b.phase = 'items'; }
+        if (b.menuIdx===2){ b.partyIdx = 0; b.phase = 'party'; }
+        if (b.menuIdx===3) tryFlee();
+      }
+      return;
+    }
+
+    if (b.phase === 'moves'){
+      const n = pMon().moves.length;
+      if (k==='arrowleft'||k==='a')  b.moveIdx = Math.max(0, b.moveIdx-1);
+      if (k==='arrowright'||k==='d') b.moveIdx = Math.min(n-1, b.moveIdx+1);
+      if (k==='arrowup'||k==='w')    b.moveIdx = Math.max(0, b.moveIdx-2);
+      if (k==='arrowdown'||k==='s')  b.moveIdx = Math.min(n-1, b.moveIdx+2);
+      if (back){ b.phase = 'menu'; return; }
+      if (confirm) doRound(pMon().moves[b.moveIdx]);
+      return;
+    }
+
+    if (b.phase === 'items'){
+      const keys = Object.keys(ITEM_DEFS);
+      if (k==='arrowup'||k==='w')   b.itemIdx = Math.max(0, b.itemIdx-1);
+      if (k==='arrowdown'||k==='s') b.itemIdx = Math.min(keys.length-1, b.itemIdx+1);
+      if (back){ b.phase = 'menu'; return; }
+      if (confirm){
+        const key = keys[b.itemIdx];
+        if (key === 'coffee') useCoffee();
+        else tryCapture(key);
+      }
+      return;
+    }
+
+    if (b.phase === 'party'){
+      if (k==='arrowup'||k==='w')   b.partyIdx = Math.max(0, b.partyIdx-1);
+      if (k==='arrowdown'||k==='s') b.partyIdx = Math.min(party.length-1, b.partyIdx+1);
+      if (back && !b.forced){ b.phase = 'menu'; return; }
+      if (confirm){
+        const target = party[b.partyIdx];
+        if (target.hp <= 0){ bmsg([`${monName(target)} is too faded to fight!`], () => { b.phase='party'; }); return; }
+        if (b.partyIdx === b.activeIdx && !b.forced){ b.phase = 'menu'; return; }
+        switchTo(b.partyIdx);
+      }
+      return;
+    }
+  }
+}
+
+function newGame(){
+  state = 'world';
+  showDialog(['Vienna, 1885. The city sleeps badly.',
+              'You are Sigmund Freud — young, broke, magnificently bearded, and convinced that dreams mean something.',
+              'Professor Brücke waits in the plaza. (Walk with arrows, talk with Z.)']);
+}
+
+window.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (k.startsWith('arrow') || k === ' ') e.preventDefault();
+  keysDown[k] = true;
+  if (k==='z'||k==='enter'||k==='x') handleKey(k);
+  // discrete (non-held) navigation in menus & battles
+  if (state !== 'world' && KEY_DIR[k]) handleKey(k);
+});
+window.addEventListener('keyup', e => { keysDown[e.key.toLowerCase()] = false; });
+
+/* ---------------- Update ---------------- */
+function update(dt){
+  timeMs += dt;
+  if (state !== 'world') return;
+  moveCooldown -= dt;
+  if (moveCooldown > 0) return;
+  for (const k in KEY_DIR){
+    if (keysDown[k]){
+      tryMove(KEY_DIR[k]);
+      moveCooldown = 150;
+      break;
+    }
+  }
+}
+
+/* ---------------- Rendering ---------------- */
+function drawHpBar(x, y, w, mon){
+  const frac = mon.hp / mon.stats.maxhp;
+  ctx.fillStyle = '#222';
+  ctx.fillRect(x, y, w, 8);
+  ctx.fillStyle = frac > 0.5 ? '#48b04f' : frac > 0.25 ? '#d8a832' : '#d04545';
+  ctx.fillRect(x+1, y+1, Math.max(0, Math.round((w-2)*frac)), 6);
+}
+function wrapText(text, x, y, maxW, lh){
+  const words = String(text).split(' ');
+  let line = '', yy = y;
+  for (const w of words){
+    const t = line ? line + ' ' + w : w;
+    if (ctx.measureText(t).width > maxW && line){
+      ctx.fillText(line, x, yy); line = w; yy += lh;
+    } else line = t;
+  }
+  if (line) ctx.fillText(line, x, yy);
+  return yy;
+}
+function panel(x, y, w, h, fill='#f6f1e1', border='#3a2d20'){
+  ctx.fillStyle = fill; ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = border; ctx.lineWidth = 3; ctx.strokeRect(x+1.5, y+1.5, w-3, h-3);
+}
+
+function drawTile(c, sx, sy, wx, wy){
+  // base ground
+  if (c==='D' || c==='M' || c==='a'){
+    ctx.fillStyle = (wx+wy)%2 ? '#372c52' : '#3c3158';
+  } else {
+    ctx.fillStyle = (wx+wy)%2 ? '#79b964' : '#7fc06a';
+  }
+  ctx.fillRect(sx, sy, TILE, TILE);
+
+  if (c==='.'){ ctx.fillStyle = '#d9c690'; ctx.fillRect(sx, sy, TILE, TILE);
+    ctx.fillStyle = 'rgba(0,0,0,.06)'; ctx.fillRect(sx+((wx*7+wy*13)%28), sy+((wx*11+wy*5)%30), 5, 3); }
+  if (c==='g'){ ctx.fillStyle = 'rgba(40,90,30,.35)';
+    ctx.fillRect(sx+8+((wx*5)%14), sy+10+((wy*7)%16), 3, 6); ctx.fillRect(sx+24-((wy*3)%10), sy+22, 3, 6); }
+  if (c==='t'){
+    ctx.fillStyle = '#6d4a2a'; ctx.fillRect(sx+16, sy+22, 8, 14);
+    ctx.fillStyle = '#2f6b33'; ctx.beginPath(); ctx.arc(sx+20, sy+14, 14, 0, 7); ctx.fill();
+    ctx.fillStyle = '#3c8a42'; ctx.beginPath(); ctx.arc(sx+15, sy+11, 8, 0, 7); ctx.fill();
+  }
+  if (c==='w'){
+    ctx.fillStyle = '#4a90d9'; ctx.fillRect(sx, sy, TILE, TILE);
+    ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 2; ctx.beginPath();
+    const ph = Math.sin(timeMs/500 + wx + wy) * 3;
+    ctx.moveTo(sx+6, sy+20+ph); ctx.quadraticCurveTo(sx+20, sy+14+ph, sx+34, sy+20+ph); ctx.stroke();
+  }
+  if (c==='b'){
+    ctx.fillStyle = '#9b6a4f'; ctx.fillRect(sx, sy, TILE, TILE);
+    ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = 1;
+    for (let i=0;i<4;i++){ ctx.beginPath(); ctx.moveTo(sx, sy+i*10+5); ctx.lineTo(sx+TILE, sy+i*10+5); ctx.stroke(); }
+    ctx.fillStyle = '#c9b08a'; ctx.fillRect(sx+8, sy+8, 10, 10);
+  }
+  if (c==='d'){
+    ctx.fillStyle = '#9b6a4f'; ctx.fillRect(sx, sy, TILE, TILE);
+    ctx.fillStyle = '#5d3b1e'; ctx.fillRect(sx+8, sy+6, 24, 34);
+    ctx.fillStyle = '#e8d9b0'; ctx.fillRect(sx+12, sy+10, 16, 8);
+    ctx.fillStyle = '#7a1f1f'; ctx.font = '8px Georgia'; ctx.fillText('19', sx+15, sy+17);
+  }
+  if (c==='f'){
+    ctx.fillStyle = '#7a5a36';
+    ctx.fillRect(sx+4, sy+10, 6, 24); ctx.fillRect(sx+26, sy+10, 6, 24);
+    ctx.fillRect(sx, sy+16, TILE, 5);
+  }
+  if (c==='G'){
+    ctx.fillStyle = '#666b77';
+    ctx.fillRect(sx+2, sy+4, 8, 32); ctx.fillRect(sx+30, sy+4, 8, 32);
+    ctx.fillRect(sx+10, sy+10, 20, 4); ctx.fillRect(sx+10, sy+24, 20, 4);
+    ctx.fillStyle = '#444'; ctx.fillRect(sx+13, sy+10, 3, 18); ctx.fillRect(sx+19, sy+10, 3, 18); ctx.fillRect(sx+25, sy+10, 3, 18);
+  }
+  if (c==='m' || c==='M'){
+    const a = 0.30 + Math.sin(timeMs/700 + wx*1.3 + wy*0.7) * 0.12;
+    ctx.fillStyle = c==='m' ? `rgba(190,160,235,${a})` : `rgba(140,100,220,${a+0.12})`;
+    ctx.beginPath(); ctx.arc(sx+13, sy+16, 11, 0, 7); ctx.arc(sx+27, sy+24, 10, 0, 7); ctx.fill();
+  }
+  if (c==='a'){
+    const g = 0.5 + Math.sin(timeMs/400)*0.3;
+    ctx.fillStyle = `rgba(240,230,170,${g})`;
+    ctx.beginPath(); ctx.arc(sx+20, sy+20, 13, 0, 7); ctx.fill();
+    ctx.fillStyle = '#3c3158'; ctx.beginPath(); ctx.arc(sx+24, sy+18, 10, 0, 7); ctx.fill();
+  }
+}
+
+function drawPlayerSprite(sx, sy){
+  ctx.fillStyle = 'rgba(0,0,0,.25)';
+  ctx.beginPath(); ctx.ellipse(sx+20, sy+35, 11, 4, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#2b2b33'; ctx.fillRect(sx+12, sy+18, 16, 16);   // suit
+  ctx.fillStyle = '#e8c39e'; ctx.fillRect(sx+13, sy+5, 14, 13);    // face
+  ctx.fillStyle = '#2a1d12';
+  ctx.fillRect(sx+12, sy+3, 16, 5);                                 // hair
+  ctx.fillRect(sx+13, sy+14, 14, 5);                                // young beard
+  ctx.fillStyle = '#fff'; ctx.fillRect(sx+17, sy+20, 6, 7);         // shirt
+  ctx.fillStyle = '#1a1a22'; ctx.fillRect(sx+13, sy+34, 5, 4); ctx.fillRect(sx+22, sy+34, 5, 4);
+  ctx.fillStyle = '#111';
+  if (player.dir !== 'up'){
+    const ox = player.dir==='left' ? -2 : player.dir==='right' ? 2 : 0;
+    ctx.fillRect(sx+16+ox, sy+9, 2, 2); ctx.fillRect(sx+22+ox, sy+9, 2, 2);
+  }
+}
+
+function drawWorld(){
+  camX = Math.max(0, Math.min(MW-VW, player.x - Math.floor(VW/2)));
+  camY = Math.max(0, Math.min(MH-VH, player.y - Math.floor(VH/2)));
+  for (let j=0;j<VH;j++) for (let i=0;i<VW;i++){
+    const wx = camX+i, wy = camY+j;
+    drawTile(map[wy][wx], i*TILE, j*TILE, wx, wy);
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '28px serif';
+  for (const n of NPCS){
+    const sx = (n.x-camX)*TILE, sy = (n.y-camY)*TILE;
+    if (sx<-TILE||sy<-TILE||sx>W||sy>H) continue;
+    ctx.fillStyle = 'rgba(0,0,0,.25)';
+    ctx.beginPath(); ctx.ellipse(sx+20, sy+34, 11, 4, 0, 0, 7); ctx.fill();
+    ctx.fillText(n.emoji, sx+20, sy+18);
+  }
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  drawPlayerSprite((player.x-camX)*TILE, (player.y-camY)*TILE);
+
+  // HUD strip
+  ctx.fillStyle = 'rgba(20,14,35,.75)';
+  ctx.fillRect(0, 0, W, 24);
+  ctx.fillStyle = '#e8ddc2'; ctx.font = '14px Georgia';
+  const lead = party[0];
+  const leadTxt = lead ? `${monName(lead)} Lv${lead.lvl} ${lead.hp}/${lead.stats.maxhp}` : 'No dreams yet';
+  ctx.fillText(`☕${items.coffee}  📓${items.notebook}+${items.leather}  Patients ${helpedCount()}/3  |  ${leadTxt}`, 10, 17);
+}
+
+function drawDialog(){
+  panel(10, 350, W-20, 120);
+  ctx.fillStyle = '#2a2018'; ctx.font = '17px Georgia';
+  wrapText(dialog.lines[dialog.idx], 28, 380, W-70, 24);
+  ctx.fillStyle = '#7a6648'; ctx.font = '14px Georgia';
+  ctx.fillText('▼ Z', W-60, 458);
+}
+
+function drawBattle(){
+  const b = battle;
+  // dreamy backdrop
+  const grad = ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,'#241b3e'); grad.addColorStop(1,'#4d3a6e');
+  ctx.fillStyle = grad; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = 'rgba(255,255,255,.08)';
+  for (let i=0;i<5;i++){
+    const x = (i*137 + timeMs/40) % (W+80) - 40;
+    ctx.beginPath(); ctx.arc(x, 60+i*55, 26+i*4, 0, 7); ctx.fill();
+  }
+
+  const e = eMon(), p = pMon();
+  // enemy
+  ctx.textAlign='center'; ctx.font = '72px serif';
+  ctx.fillText(SPECIES[e.sp].emoji, 480, 170);
+  ctx.textAlign='left';
+  panel(20, 20, 270, 74, '#efe8f6');
+  ctx.fillStyle = '#241b3e'; ctx.font = 'bold 18px Georgia';
+  ctx.fillText(`${b.wild?'Wild ':''}${monName(e)}`, 34, 45);
+  ctx.font = '14px Georgia'; ctx.fillText(`Lv ${e.lvl}`, 240, 45);
+  ctx.fillStyle = TYPE_COLOR[SPECIES[e.sp].type];
+  ctx.fillRect(34, 52, 70, 16);
+  ctx.fillStyle = '#fff'; ctx.font = '11px Georgia';
+  ctx.fillText(SPECIES[e.sp].type, 40, 64);
+  drawHpBar(115, 56, 160, e);
+
+  // player mon
+  ctx.textAlign='center'; ctx.font = '72px serif';
+  ctx.fillText(SPECIES[p.sp].emoji, 150, 320);
+  ctx.textAlign='left';
+  panel(340, 250, 280, 96, '#efe8f6');
+  ctx.fillStyle = '#241b3e'; ctx.font = 'bold 18px Georgia';
+  ctx.fillText(monName(p), 354, 275);
+  ctx.font = '14px Georgia'; ctx.fillText(`Lv ${p.lvl}`, 570, 275);
+  drawHpBar(354, 285, 250, p);
+  ctx.fillStyle = '#241b3e'; ctx.font = '13px Georgia';
+  ctx.fillText(`${p.hp}/${p.stats.maxhp}`, 354, 312);
+  ctx.fillStyle = '#888'; ctx.fillRect(354, 322, 250, 5);
+  ctx.fillStyle = '#5b8edb'; ctx.fillRect(354, 322, 250 * Math.min(1, p.xp/xpNeeded(p.lvl)), 5);
+  ctx.fillStyle = '#666'; ctx.font = '11px Georgia'; ctx.fillText('insight', 354, 340);
+
+  // text box
+  panel(10, 360, W-20, 110);
+
+  if (b.phase === 'msg'){
+    ctx.fillStyle = '#2a2018'; ctx.font = '17px Georgia';
+    wrapText(b.msgs[0] || '', 28, 390, W-70, 24);
+    ctx.fillStyle = '#7a6648'; ctx.font = '14px Georgia'; ctx.fillText('▼ Z', W-60, 458);
+  }
+  if (b.phase === 'menu'){
+    ctx.fillStyle = '#2a2018'; ctx.font = '17px Georgia';
+    wrapText(`What will ${monName(p)} do?`, 28, 392, 320, 24);
+    const opts = ['Analyze','Satchel','Dreams','Flee'];
+    panel(382, 366, 248, 98, '#fbf7ea');
+    ctx.font = '17px Georgia';
+    opts.forEach((o,i) => {
+      const ox = 400 + (i%2)*120, oy = 398 + Math.floor(i/2)*40;
+      ctx.fillStyle = i===b.menuIdx ? '#8a2434' : '#2a2018';
+      ctx.fillText((i===b.menuIdx?'▶ ':'  ')+o, ox, oy);
+    });
+  }
+  if (b.phase === 'moves'){
+    ctx.font = '16px Georgia';
+    p.moves.forEach((mv,i) => {
+      const ox = 30 + (i%2)*300, oy = 395 + Math.floor(i/2)*36;
+      ctx.fillStyle = i===b.moveIdx ? '#8a2434' : '#2a2018';
+      ctx.fillText((i===b.moveIdx?'▶ ':'  ')+mv, ox, oy);
+      ctx.fillStyle = TYPE_COLOR[MOVES[mv].type]; ctx.font = '12px Georgia';
+      ctx.fillText(`${MOVES[mv].type} · pow ${MOVES[mv].power}`, ox+18, oy+15);
+      ctx.font = '16px Georgia';
+    });
+    ctx.fillStyle = '#7a6648'; ctx.font = '13px Georgia'; ctx.fillText('X: back', W-80, 458);
+  }
+  if (b.phase === 'items'){
+    const keys = Object.keys(ITEM_DEFS);
+    ctx.font = '16px Georgia';
+    keys.forEach((key,i) => {
+      const oy = 390 + i*26;
+      ctx.fillStyle = i===b.itemIdx ? '#8a2434' : '#2a2018';
+      ctx.fillText(`${i===b.itemIdx?'▶ ':'  '}${ITEM_DEFS[key].label} ×${items[key]}`, 30, oy);
+      if (i===b.itemIdx){ ctx.fillStyle = '#6b5a40'; ctx.font='13px Georgia'; ctx.fillText(ITEM_DEFS[key].desc, 280, oy); ctx.font='16px Georgia'; }
+    });
+    ctx.fillStyle = '#7a6648'; ctx.font = '13px Georgia'; ctx.fillText('X: back', W-80, 458);
+  }
+  if (b.phase === 'party'){
+    ctx.font = '15px Georgia';
+    party.forEach((m,i) => {
+      const oy = 384 + i*16;
+      ctx.fillStyle = i===b.partyIdx ? '#8a2434' : (m.hp<=0 ? '#998' : '#2a2018');
+      ctx.fillText(`${i===b.partyIdx?'▶ ':'  '}${SPECIES[m.sp].emoji} ${monName(m)} Lv${m.lvl}  ${m.hp}/${m.stats.maxhp}${i===b.activeIdx?'  (active)':''}`, 30, oy);
+    });
+    ctx.fillStyle = '#7a6648'; ctx.font = '13px Georgia';
+    ctx.fillText(b.forced ? 'Choose your next dream!' : 'X: back', W-220, 458);
+  }
+}
+
+function drawTitle(){
+  const grad = ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,'#171225'); grad.addColorStop(1,'#3b2c5e');
+  ctx.fillStyle = grad; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = 'rgba(255,255,255,.1)';
+  for (let i=0;i<7;i++){
+    const x = (i*101 + timeMs/60) % (W+60) - 30;
+    ctx.beginPath(); ctx.arc(x, 50+i*60, 18+i*3, 0, 7); ctx.fill();
+  }
+  ctx.textAlign='center';
+  ctx.font='70px serif'; ctx.fillText('🛋️', W/2, 140);
+  ctx.fillStyle = '#f0e6c8'; ctx.font = 'bold 44px Georgia';
+  ctx.fillText('TRAUMFÄNGER', W/2, 215);
+  ctx.fillStyle = '#cfc4e8'; ctx.font = 'italic 20px Georgia';
+  ctx.fillText('Young Freud and the Dream Catchers', W/2, 250);
+  ctx.font = '16px Georgia';
+  ctx.fillText('Vienna, 1885. The city sleeps badly.', W/2, 300);
+  ctx.fillText('Collect dreams · Conquer nightmares · Invent psychoanalysis', W/2, 326);
+  if (Math.floor(timeMs/600)%2===0){
+    ctx.fillStyle = '#f0e6c8'; ctx.font = 'bold 20px Georgia';
+    ctx.fillText('— Press Enter —', W/2, 400);
+  }
+  ctx.textAlign='left';
+}
+
+function drawStarter(){
+  drawWorld();
+  ctx.fillStyle = 'rgba(15,10,28,.82)'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = '#f0e6c8'; ctx.textAlign='center';
+  ctx.font = 'bold 24px Georgia'; ctx.fillText('Choose your first dream', W/2, 60);
+  STARTERS.forEach((sp,i) => {
+    const x = 40 + i*190, y = 100, sel = i===starterIdx;
+    panel(x, y, 180, 250, sel ? '#fbf7ea' : '#d8d0c2', sel ? '#8a2434' : '#3a2d20');
+    ctx.font = '56px serif'; ctx.fillText(SPECIES[sp].emoji, x+90, y+80);
+    ctx.fillStyle = '#241b3e'; ctx.font = 'bold 19px Georgia';
+    ctx.fillText(SPECIES[sp].name, x+90, y+120);
+    ctx.fillStyle = TYPE_COLOR[SPECIES[sp].type];
+    ctx.fillRect(x+50, y+132, 80, 18);
+    ctx.fillStyle = '#fff'; ctx.font = '12px Georgia'; ctx.fillText(SPECIES[sp].type, x+90, y+145);
+    ctx.fillStyle = '#4a4036'; ctx.font = '13px Georgia'; ctx.textAlign='left';
+    wrapText(SPECIES[sp].desc, x+14, y+172, 152, 17);
+    ctx.textAlign='center';
+  });
+  ctx.fillStyle = '#cfc4e8'; ctx.font = '15px Georgia';
+  ctx.fillText('◀ ▶ choose · Z confirm', W/2, 400);
+  ctx.textAlign='left';
+}
+
+function drawMenu(){
+  drawWorld();
+  ctx.fillStyle = 'rgba(15,10,28,.78)'; ctx.fillRect(0,0,W,H);
+  panel(70, 40, 500, 400);
+  ctx.fillStyle = '#241b3e'; ctx.font = 'bold 22px Georgia';
+  ctx.fillText('📓 Dream Journal — S. Freud', 95, 78);
+  ctx.font = '15px Georgia';
+  ctx.fillText(`Patients helped: ${helpedCount()}/3 · Dreams recorded: ${journalTotal} · Depths: ${flags.boss?'conquered':flags.gateOpen?'open':'sealed'}`, 95, 105);
+  ctx.fillStyle = '#6b5a40';
+  ctx.fillText('— Companions —', 95, 135);
+  ctx.fillStyle = '#241b3e';
+  if (party.length === 0) ctx.fillText('(none yet — see Prof. Brücke)', 105, 160);
+  party.forEach((m,i) => {
+    const y = 160 + i*30;
+    ctx.fillText(`${SPECIES[m.sp].emoji} ${monName(m)}  Lv${m.lvl}  HP ${m.hp}/${m.stats.maxhp}`, 105, y);
+    ctx.fillStyle = TYPE_COLOR[SPECIES[m.sp].type];
+    ctx.fillText(SPECIES[m.sp].type, 400, y);
+    ctx.fillStyle = '#241b3e';
+  });
+  ctx.fillStyle = '#6b5a40';
+  ctx.fillText('— Satchel —', 95, 360);
+  ctx.fillStyle = '#241b3e';
+  ctx.fillText(`Notebook ×${items.notebook}    Leather Journal ×${items.leather}    Strong Coffee ×${items.coffee}`, 105, 385);
+  ctx.fillStyle = '#7a6648'; ctx.font = '13px Georgia';
+  ctx.fillText('Z/X: close', 480, 425);
+}
+
+function drawEnding(){
+  const grad = ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,'#fdf3d8'); grad.addColorStop(1,'#e8c98a');
+  ctx.fillStyle = grad; ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center';
+  ctx.font='64px serif'; ctx.fillText('🌅', W/2, 100);
+  ctx.fillStyle = '#4a2e16'; ctx.font = 'bold 30px Georgia';
+  ctx.fillText('The shadow lifts from Vienna.', W/2, 165);
+  ctx.font = '17px Georgia';
+  ctx.fillText('Das Unbewusste was not destroyed — it was understood.', W/2, 215);
+  ctx.fillText('And what is understood need no longer be feared.', W/2, 242);
+  ctx.fillText('Years pass. The dream journal grows into a manuscript...', W/2, 290);
+  ctx.font = 'italic bold 22px Georgia';
+  ctx.fillText('1899 — "The Interpretation of Dreams" is published.', W/2, 335);
+  ctx.font = 'bold 26px Georgia'; ctx.fillStyle = '#7a1f1f';
+  ctx.fillText('Psychoanalysis is born.', W/2, 380);
+  ctx.fillStyle = '#4a2e16'; ctx.font = '15px Georgia';
+  ctx.fillText('THE END — press Enter to keep wandering your dreams', W/2, 435);
+  ctx.textAlign='left';
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  if (state === 'title') return drawTitle();
+  if (state === 'ending') return drawEnding();
+  if (state === 'battle') return drawBattle();
+  if (state === 'starter') return drawStarter();
+  if (state === 'menu') return drawMenu();
+  drawWorld();
+  if (state === 'dialog') drawDialog();
+}
+
+/* ---------------- Main loop ---------------- */
+function loop(t){
+  const dt = Math.min(50, t - lastT);
+  lastT = t;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+genMap();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
