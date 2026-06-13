@@ -705,6 +705,272 @@ function update(dt){
   }
 }
 
+/* ============================================================
+   PIXEL-ART SPRITE ENGINE
+   Sprites are built into small per-pixel buffers (procedural,
+   snapped to a pixel grid) and blitted scaled with crisp edges.
+   Tiles are baked once into 40x40 offscreen canvases.
+   All canvas-creating work is lazy so the headless test never
+   touches document.createElement.
+   ============================================================ */
+function shade(hex, f){
+  const n = parseInt(hex.slice(1), 16);
+  let r = (n>>16)&255, g = (n>>8)&255, b = n&255;
+  r = Math.max(0, Math.min(255, Math.round(r*f)));
+  g = Math.max(0, Math.min(255, Math.round(g*f)));
+  b = Math.max(0, Math.min(255, Math.round(b*f)));
+  return '#' + (0x1000000 + (r<<16) + (g<<8) + b).toString(16).slice(1);
+}
+function makeBuf(n){ return Array.from({length:n}, () => Array(n).fill(null)); }
+function setpx(buf, x, y, c){ if (c && x>=0 && y>=0 && y<buf.length && x<buf[0].length) buf[y][x] = c; }
+function outline(buf, col){
+  const n = buf.length, add = [];
+  for (let y=0;y<n;y++) for (let x=0;x<n;x++){
+    if (buf[y][x]) continue;
+    if ((y>0&&buf[y-1][x])||(y<n-1&&buf[y+1][x])||(x>0&&buf[y][x-1])||(x<n-1&&buf[y][x+1])) add.push([x,y]);
+  }
+  for (const [x,y] of add) buf[y][x] = col;
+}
+function blitBuf(buf, dx, dy, P, flip){
+  const n = buf.length;
+  for (let y=0;y<n;y++){
+    const row = buf[y], w = row.length;
+    for (let x=0;x<w;x++){
+      const c = row[x]; if (!c) continue;
+      const X = flip ? dx + (w-1-x)*P : dx + x*P;
+      ctx.fillStyle = c; ctx.fillRect(X, dy + y*P, P, P);
+    }
+  }
+}
+
+/* ----- creature body shapes ----- */
+function ell(buf, cx, cy, rx, ry, base){
+  const dk = shade(base,0.72), lt = shade(base,1.22);
+  for (let y=0;y<16;y++) for (let x=0;x<16;x++){
+    const nx=(x-cx)/rx, ny=(y-cy)/ry;
+    if (nx*nx+ny*ny <= 1){
+      let c = base; const d = (x-cx)+(y-cy);
+      if (d > rx*0.55) c = dk; else if (d < -rx*0.85) c = lt;
+      buf[y][x] = c;
+    }
+  }
+}
+function dropShape(buf, base){
+  const dk = shade(base,0.72), lt = shade(base,1.32);
+  for (let y=0;y<16;y++) for (let x=0;x<16;x++){
+    let inside=false;
+    if (y>=7){ const nx=(x-8)/5, ny=(y-10)/5; inside = nx*nx+ny*ny<=1; }
+    else { const half=y-2; if (half>=0 && Math.abs(x-8)<=half) inside=true; }
+    if (inside){ let c=base; if ((x-8)+(y-10)>3) c=dk; else if (x<7&&y<10) c=lt; buf[y][x]=c; }
+  }
+  outline(buf, shade(base,0.4));
+  setpx(buf,6,8,'#ffffff');
+}
+function flyShape(buf, base){
+  const dk = shade(base,0.7), lt = shade(base,1.3), ol = shade(base,0.4);
+  const wing=(cx,cy,rx,ry,c)=>{ for(let y=0;y<16;y++)for(let x=0;x<16;x++){ const nx=(x-cx)/rx,ny=(y-cy)/ry; if(nx*nx+ny*ny<=1) setpx(buf,x,y,c);} };
+  wing(4,6,3.6,3,base); wing(11,6,3.6,3,base);
+  wing(4.5,11,3,2.6,lt); wing(10.5,11,3,2.6,lt);
+  for (let y=4;y<13;y++) setpx(buf,8,y,dk);
+  outline(buf, ol);
+  setpx(buf,7,2,dk); setpx(buf,9,2,dk); setpx(buf,6,1,dk); setpx(buf,10,1,dk);
+}
+function eyes2(buf, xl, xr, y){
+  for (const x of [xl,xr]){
+    setpx(buf,x,y,'#ffffff'); setpx(buf,x+1,y,'#ffffff');
+    setpx(buf,x,y+1,'#ffffff'); setpx(buf,x+1,y+1,'#ffffff');
+    setpx(buf,x,y+1,'#1b1426');
+  }
+}
+
+/* ----- creature feature decorations ----- */
+const FEAT = {
+  earP(buf,base){ const dk=shade(base,0.8);
+    setpx(buf,4,1,dk); setpx(buf,4,2,base); setpx(buf,5,2,base); setpx(buf,5,3,base);
+    setpx(buf,11,1,dk); setpx(buf,11,2,base); setpx(buf,10,2,base); setpx(buf,10,3,base); },
+  earR(buf,base){ const dk=shade(base,0.8);
+    setpx(buf,4,2,base); setpx(buf,5,2,base); setpx(buf,4,3,base); setpx(buf,5,3,dk);
+    setpx(buf,10,2,base); setpx(buf,11,2,base); setpx(buf,11,3,base); setpx(buf,10,3,dk); },
+  tuft(buf,base){ const lt=shade(base,1.3); setpx(buf,7,1,lt); setpx(buf,8,1,lt); setpx(buf,8,0,lt); setpx(buf,7,2,lt); },
+  wing(buf,base){ const dk=shade(base,0.78);
+    setpx(buf,2,7,base); setpx(buf,3,6,base); setpx(buf,2,8,base); setpx(buf,3,8,dk); setpx(buf,3,7,base);
+    setpx(buf,13,7,base); setpx(buf,12,6,base); setpx(buf,13,8,base); setpx(buf,12,8,dk); setpx(buf,12,7,base); },
+  batw(buf,base){ const dk=shade(base,0.72);
+    [[1,5],[1,6],[1,7],[2,6],[2,7],[2,8],[3,7],[3,8]].forEach(([x,y])=>setpx(buf,x,y,base));
+    [[14,5],[14,6],[14,7],[13,6],[13,7],[13,8],[12,7],[12,8]].forEach(([x,y])=>setpx(buf,x,y,base));
+    setpx(buf,3,8,dk); setpx(buf,12,8,dk);
+    setpx(buf,5,2,base); setpx(buf,6,1,base); setpx(buf,10,2,base); setpx(buf,9,1,base); },
+  antler(buf){ const c='#caa36a', d='#9c7a4a';
+    setpx(buf,5,2,c); setpx(buf,5,1,c); setpx(buf,4,1,c); setpx(buf,5,0,d); setpx(buf,4,0,d);
+    setpx(buf,10,2,c); setpx(buf,10,1,c); setpx(buf,11,1,c); setpx(buf,10,0,d); setpx(buf,11,0,d);
+    setpx(buf,6,1,c); setpx(buf,9,1,c); },
+  horn(buf){ const c='#e9e2cf'; setpx(buf,8,0,c); setpx(buf,8,1,c); setpx(buf,7,2,c); },
+  beak(buf,base,f){ const c=f[1]||'#e8b24a', x=f[2]==null?7:f[2], y=f[3]==null?8:f[3];
+    setpx(buf,x,y,c); setpx(buf,x+1,y,c); setpx(buf,x,y+1,c); setpx(buf,x+1,y+1,shade(c,0.8)); },
+  tongue(buf){ setpx(buf,8,10,'#d24a5a'); setpx(buf,8,11,'#d24a5a'); setpx(buf,7,12,'#d24a5a'); setpx(buf,9,12,'#d24a5a'); },
+  tent(buf,base){ const dk=shade(base,0.78);
+    for (const x of [4,6,8,10,11]){ setpx(buf,x,12,base); setpx(buf,x,13,dk); }
+    setpx(buf,5,14,base); setpx(buf,8,14,dk); setpx(buf,10,14,base); },
+  mane(buf){ const c='#2a2036';
+    for (let y=2;y<10;y++){ setpx(buf,11,y,c); setpx(buf,12,y,shade(c,1.4)); }
+    setpx(buf,10,2,c); setpx(buf,9,1,c); },
+  shine(buf){ setpx(buf,6,5,'#ffffff'); },
+  eyesMany(buf){ const ps=[[5,6],[10,5],[7,9],[11,9],[4,10],[8,11]];
+    for (const [x,y] of ps){ setpx(buf,x,y,'#f6e98a'); setpx(buf,x,y+1,'#2a2036'); } },
+};
+
+const SHAPE = { round:[8,9,6,5.5], wide:[8,10,7,4.8], tall:[8,8,4.8,6.6], blob:[8,8,7,6.8] };
+const CREA = {
+  wunschling:  {color:'#f2c6dd', shape:'round', back:[['wing']],            front:[['beak','#e8b24a',7,9]], eye:[6,9,6]},
+  schattenpup: {color:'#7a5add', shape:'round', back:[['earP']],            front:[['beak','#3a2d4a',7,10]], eye:[6,9,7]},
+  mnemochick:  {color:'#39b9ac', shape:'round', back:[['tuft']],            front:[['beak','#e8b24a',7,9]], eye:[6,9,7]},
+  anxitoad:    {color:'#7a5add', shape:'wide',                              front:[['beak','#5a4a6a',7,11]], eye:[5,10,6]},
+  libidew:     {color:'#e06aa3', shape:'drop',                             front:[['shine']], eye:[6,9,9]},
+  reverie:     {color:'#2aa198', shape:'fly',  eye:false},
+  phobat:      {color:'#7a5add', shape:'round', back:[['batw']],            eye:[6,9,7]},
+  egolem:      {color:'#8a8f99', shape:'tall',                              eye:[6,9,7]},
+  iddra:       {color:'#e06aa3', shape:'tall',                             front:[['tongue']], eye:[6,9,6]},
+  superegon:   {color:'#cb7b2a', shape:'round', back:[['earP']],            front:[['beak','#e8b24a',7,9]], eye:[5,9,7]},
+  oedipuff:    {color:'#f0e6ef', shape:'round',                            front:[['beak','#e08a2a',7,8]], eye:[6,9,6]},
+  traumhirsch: {color:'#9c6b3f', shape:'tall', back:[['antler'],['earR']],  front:[['beak','#6a4a2a',7,9]], eye:[6,9,6]},
+  vergessling: {color:'#2aa198', shape:'round', back:[['tent']],            eye:[6,9,7]},
+  nachtmahr:   {color:'#6a52b8', shape:'tall', back:[['mane']],             front:[['beak','#3a2d4a',7,10]], eye:[6,9,6]},
+  unbewusste:  {color:'#211836', shape:'blob',                             front:[['eyesMany']], eye:false},
+};
+
+const monBufCache = {};
+function buildCreature(sp){
+  const d = CREA[sp], buf = makeBuf(16), base = d.color;
+  (d.back||[]).forEach(f => FEAT[f[0]] && FEAT[f[0]](buf, base, f));
+  if (d.shape==='fly') flyShape(buf, base);
+  else if (d.shape==='drop') dropShape(buf, base);
+  else { const s = SHAPE[d.shape]; ell(buf, s[0], s[1], s[2], s[3], base); outline(buf, shade(base,0.4)); }
+  (d.front||[]).forEach(f => FEAT[f[0]] && FEAT[f[0]](buf, base, f));
+  if (d.eye !== false){ const e = d.eye; eyes2(buf, e[0], e[1], e[2]); }
+  return buf;
+}
+function drawCreature(sp, cx, cy, P, flip){
+  const buf = monBufCache[sp] || (monBufCache[sp] = buildCreature(sp));
+  blitBuf(buf, Math.round(cx - 8*P), Math.round(cy - 8*P), P, !!flip);
+}
+
+/* ----- people (player + NPCs) ----- */
+const personCache = {};
+function buildPerson(o, dir){
+  const buf = makeBuf(16), O = '#1a1320';
+  const skin=o.skin, skinD=shade(o.skin,0.85);
+  const hair=o.hair, hairD=shade(o.hair,0.8);
+  const coat=o.coat, coatD=shade(o.coat,0.78), coatL=shade(o.coat,1.15);
+  const shirt=o.shirt||'#efe7d5';
+  for (let y=13;y<15;y++){ setpx(buf,6,y,'#2a2230'); setpx(buf,7,y,'#2a2230'); setpx(buf,9,y,'#2a2230'); setpx(buf,10,y,'#2a2230'); }
+  setpx(buf,6,15,O); setpx(buf,7,15,O); setpx(buf,9,15,O); setpx(buf,10,15,O);
+  for (let y=8;y<13;y++) for (let x=4;x<12;x++) setpx(buf,x,y,coat);
+  for (let y=8;y<13;y++){ setpx(buf,11,y,coatD); setpx(buf,4,y,coatL); }
+  for (let y=8;y<12;y++){ setpx(buf,3,y,coatD); setpx(buf,12,y,coatD); }
+  if (dir!=='up') for (let y=8;y<12;y++){ setpx(buf,7,y,shirt); setpx(buf,8,y,shirt); }
+  for (let y=3;y<8;y++) for (let x=5;x<11;x++) setpx(buf,x,y,skin);
+  for (let x=5;x<11;x++) setpx(buf,x,7,skinD);
+  if (o.beard){ for (let x=5;x<11;x++) setpx(buf,x,7,hairD); setpx(buf,5,6,hairD); setpx(buf,10,6,hairD);
+    setpx(buf,6,8,hairD); setpx(buf,7,8,hairD); setpx(buf,8,8,hairD); setpx(buf,9,8,hairD); }
+  if (dir==='up'){ for (let y=2;y<8;y++) for (let x=5;x<11;x++) setpx(buf,x,y,hair); }
+  else {
+    for (let x=4;x<12;x++) setpx(buf,x,2,hair);
+    setpx(buf,4,3,hair); setpx(buf,5,3,hair); setpx(buf,10,3,hair); setpx(buf,11,3,hair);
+    setpx(buf,4,4,hair); setpx(buf,11,4,hair);
+  }
+  if (o.long && dir!=='up') for (let y=3;y<9;y++){ setpx(buf,4,y,hair); setpx(buf,11,y,hair); }
+  if (dir==='down'){ setpx(buf,6,5,O); setpx(buf,9,5,O); }
+  else if (dir==='left') setpx(buf,6,5,O);
+  if (o.hat==='top'){ for (let x=4;x<12;x++) setpx(buf,x,2,O); for (let x=5;x<11;x++){ setpx(buf,x,0,O); setpx(buf,x,1,O); } }
+  if (o.hat==='helm'){ for (let x=4;x<12;x++) setpx(buf,x,2,'#9aa0ad'); for (let x=5;x<11;x++) setpx(buf,x,1,'#b6bcc8');
+    setpx(buf,8,0,'#c0392b'); setpx(buf,7,1,'#9aa0ad'); }
+  outline(buf, O);
+  return buf;
+}
+const PDEF = {
+  freud:   {skin:'#e8c39e', hair:'#3a2a1a', coat:'#2b2b33', shirt:'#efe7d5', beard:true},
+  brucke:  {skin:'#e6bf98', hair:'#d8d2c4', coat:'#4a3f55', shirt:'#d8cdb8', beard:true},
+  bertha:  {skin:'#ecc6a4', hair:'#6a4326', coat:'#9a4a6a', shirt:'#e7c6d4', long:true},
+  lanzer:  {skin:'#e8c39e', hair:'#3a2a1a', coat:'#34405a', shirt:'#e7e0cf', hat:'top'},
+  cacilie: {skin:'#e6c4a8', hair:'#bdb7aa', coat:'#5a4a6a', shirt:'#cfc6d8', long:true},
+  guard:   {skin:'#e0b793', hair:'#3a2a1a', coat:'#39507a', shirt:'#b6bcc8', hat:'helm'},
+  anna:    {skin:'#f0cda8', hair:'#d9b15a', coat:'#c46a8a', shirt:'#f0dca8', long:true},
+  cafe:    {skin:'#e2b58c', hair:'#4a3526', coat:'#5a4030', shirt:'#cdbf9a', beard:true},
+};
+function drawPerson(key, dx, dy, P, dir){
+  const o = PDEF[key] || PDEF.freud;
+  const bdir = dir==='right' ? 'left' : dir;
+  const ck = key + '_' + bdir;
+  const buf = personCache[ck] || (personCache[ck] = buildPerson(o, bdir));
+  blitBuf(buf, dx, dy, P, dir==='right');
+}
+
+/* ----- baked tile canvases ----- */
+let TC = null;
+function buildTiles(){
+  TC = {};
+  const tcv = () => { const cn = document.createElement('canvas'); cn.width = 40; cn.height = 40; return cn; };
+  const mk = (fn) => { const cn = tcv(); fn(cn.getContext('2d')); return cn; };
+  const P = (x,gx,gy,gw,gh,c) => { x.fillStyle = c; x.fillRect(gx*2, gy*2, gw*2, gh*2); };
+  const speck = (x,seed,col,n) => { let s=seed; const rnd=()=>{ s=(s*1103515245+12345)&0x7fffffff; return s/0x7fffffff; };
+    for (let i=0;i<n;i++) P(x, Math.floor(rnd()*20), Math.floor(rnd()*20), 1, 1, col); };
+
+  TC.grass = mk(x => { P(x,0,0,20,20,'#5fa64f'); speck(x,7,'#6fb85c',26); speck(x,99,'#4f9142',22);
+    P(x,3,5,1,2,'#3f7d38'); P(x,12,9,1,2,'#3f7d38'); P(x,8,15,1,2,'#3f7d38'); P(x,16,3,1,2,'#3f7d38'); });
+  TC.path = mk(x => { P(x,0,0,20,20,'#cdb279'); speck(x,5,'#d8c08c',20); speck(x,33,'#b89a63',18);
+    P(x,0,0,20,1,'#b89a63'); P(x,0,19,20,1,'#b89a63'); });
+  TC.depth = mk(x => { P(x,0,0,20,20,'#2c2547'); speck(x,11,'#3a3158',24); speck(x,71,'#241d3c',18);
+    P(x,4,4,1,1,'#a99fd0'); P(x,14,7,1,1,'#cfc4e8'); P(x,9,13,1,1,'#8a7fc0'); P(x,17,15,1,1,'#a99fd0'); });
+  TC.water = mk(x => { P(x,0,0,20,20,'#3f7fc0'); speck(x,17,'#4f8fd0',16);
+    P(x,2,6,7,1,'#7fb0e0'); P(x,11,12,6,1,'#7fb0e0'); P(x,4,16,6,1,'#5f9fd8'); });
+  TC.wall = mk(x => { P(x,0,0,20,20,'#9a6b50');
+    for (let r=0;r<5;r++) P(x,0,r*4+3,20,1,'#7a5238');
+    for (let r=0;r<5;r++){ const off=r%2?3:0; for (let cx=off;cx<20;cx+=6) P(x,cx,r*4,1,4,'#7a5238'); }
+    P(x,12,4,5,5,'#bfe0e8'); P(x,12,4,5,1,'#7a5238'); P(x,14,4,1,5,'#7a5238'); });
+  TC.door = mk(x => { P(x,0,0,20,20,'#9a6b50'); for (let r=0;r<5;r++) P(x,0,r*4+3,20,1,'#7a5238');
+    P(x,5,3,10,17,'#5d3b1e'); P(x,6,4,8,15,'#6e4a28'); P(x,6,4,8,4,'#d8c08c'); P(x,12,12,1,1,'#e8c84a'); });
+  TC.tree = mk(x => { P(x,9,12,2,5,'#6d4a2a'); P(x,8,16,4,1,'#5a3a20');
+    const f=(cx,cy,r,c)=>{ for (let yy=-r;yy<=r;yy++) for (let xx=-r;xx<=r;xx++) if (xx*xx+yy*yy<=r*r) P(x,cx+xx,cy+yy,1,1,c); };
+    f(10,7,6,'#2f6b33'); f(7,6,4,'#347a3a'); f(12,5,3,'#3c8a42'); f(10,7,2,'#48a050'); });
+  TC.fence = mk(x => { P(x,2,5,2,12,'#8a6a40'); P(x,16,5,2,12,'#8a6a40'); P(x,0,7,20,2,'#9a7a4c'); P(x,0,12,20,2,'#9a7a4c');
+    P(x,2,5,2,1,'#b89a64'); P(x,16,5,2,1,'#b89a64'); });
+  TC.gate = mk(x => { P(x,1,2,3,16,'#5a606c'); P(x,16,2,3,16,'#5a606c');
+    for (let cx=5;cx<16;cx+=4) P(x,cx,4,1,12,'#6a7080'); P(x,4,4,12,1,'#6a7080'); P(x,4,14,12,1,'#6a7080');
+    P(x,1,2,3,1,'#8a909c'); P(x,16,2,3,1,'#8a909c'); });
+}
+
+/* ----- animated tile overlays ----- */
+function waveOverlay(sx, sy, wx, wy){
+  const ph = Math.round(Math.sin(timeMs/500 + wx + wy) * 2) * 2;
+  ctx.fillStyle = 'rgba(255,255,255,.45)';
+  ctx.fillRect(sx+8, sy+18+ph, 10, 2); ctx.fillRect(sx+22, sy+26-ph, 8, 2);
+}
+function mistOverlay(sx, sy, wx, wy, c){
+  const t = timeMs/700 + wx*1.3 + wy*0.7;
+  const a = 0.26 + Math.sin(t)*0.12;
+  ctx.fillStyle = c==='m' ? `rgba(196,170,240,${a})` : `rgba(150,110,225,${a+0.12})`;
+  const off = Math.round(Math.sin(t)*2) * 2;
+  ctx.fillRect(sx+6,  sy+10+off, 8, 6);
+  ctx.fillRect(sx+20, sy+18-off, 10, 6);
+  ctx.fillRect(sx+12, sy+24+off, 8, 5);
+}
+function altarOverlay(sx, sy){
+  const g = 0.5 + Math.sin(timeMs/400)*0.35;
+  ctx.fillStyle = '#6a5a86'; ctx.fillRect(sx+12, sy+16, 16, 18);
+  ctx.fillStyle = '#4a3d63'; ctx.fillRect(sx+14, sy+18, 12, 14);
+  ctx.fillStyle = `rgba(245,232,150,${g})`;
+  ctx.fillRect(sx+12, sy+4, 16, 4); ctx.fillRect(sx+18, sy+8, 4, 24);
+}
+function platform(cx, cy, rw){
+  ctx.fillStyle = 'rgba(20,12,40,.35)';
+  ctx.beginPath(); ctx.ellipse(cx, cy, rw, rw*0.32, 0, 0, 7); ctx.fill();
+}
+function drawCouch(cx, cy, s){
+  const P = (gx,gy,gw,gh,c) => { ctx.fillStyle = c; ctx.fillRect(cx+gx*s, cy+gy*s, gw*s, gh*s); };
+  P(-8,-2,16,6,'#7a3b4a'); P(-8,-5,3,5,'#8a4a59'); P(5,-5,3,5,'#8a4a59');
+  P(-5,-5,10,3,'#9a5566'); P(-5,-1,10,2,'#5a2a36'); P(-8,4,2,3,'#3a2028'); P(6,4,2,3,'#3a2028');
+}
+
 /* ---------------- Rendering ---------------- */
 function drawHpBar(x, y, w, mon){
   const frac = mon.hp / mon.stats.maxhp;
@@ -726,85 +992,36 @@ function wrapText(text, x, y, maxW, lh){
   return yy;
 }
 function panel(x, y, w, h, fill='#f6f1e1', border='#3a2d20'){
-  ctx.fillStyle = fill; ctx.fillRect(x, y, w, h);
-  ctx.strokeStyle = border; ctx.lineWidth = 3; ctx.strokeRect(x+1.5, y+1.5, w-3, h-3);
+  ctx.fillStyle = border;            ctx.fillRect(x-3, y-3, w+6, h+6);
+  ctx.fillStyle = shade(border,1.7); ctx.fillRect(x-1, y-1, w+2, h+2);
+  ctx.fillStyle = fill;              ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = shade(fill,1.08);  ctx.fillRect(x+2, y+2, w-4, 2);
 }
 
 function drawTile(c, sx, sy, wx, wy){
-  // base ground
-  if (c==='D' || c==='M' || c==='a'){
-    ctx.fillStyle = (wx+wy)%2 ? '#372c52' : '#3c3158';
-  } else {
-    ctx.fillStyle = (wx+wy)%2 ? '#79b964' : '#7fc06a';
-  }
-  ctx.fillRect(sx, sy, TILE, TILE);
-
-  if (c==='.'){ ctx.fillStyle = '#d9c690'; ctx.fillRect(sx, sy, TILE, TILE);
-    ctx.fillStyle = 'rgba(0,0,0,.06)'; ctx.fillRect(sx+((wx*7+wy*13)%28), sy+((wx*11+wy*5)%30), 5, 3); }
-  if (c==='g'){ ctx.fillStyle = 'rgba(40,90,30,.35)';
-    ctx.fillRect(sx+8+((wx*5)%14), sy+10+((wy*7)%16), 3, 6); ctx.fillRect(sx+24-((wy*3)%10), sy+22, 3, 6); }
-  if (c==='t'){
-    ctx.fillStyle = '#6d4a2a'; ctx.fillRect(sx+16, sy+22, 8, 14);
-    ctx.fillStyle = '#2f6b33'; ctx.beginPath(); ctx.arc(sx+20, sy+14, 14, 0, 7); ctx.fill();
-    ctx.fillStyle = '#3c8a42'; ctx.beginPath(); ctx.arc(sx+15, sy+11, 8, 0, 7); ctx.fill();
-  }
-  if (c==='w'){
-    ctx.fillStyle = '#4a90d9'; ctx.fillRect(sx, sy, TILE, TILE);
-    ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 2; ctx.beginPath();
-    const ph = Math.sin(timeMs/500 + wx + wy) * 3;
-    ctx.moveTo(sx+6, sy+20+ph); ctx.quadraticCurveTo(sx+20, sy+14+ph, sx+34, sy+20+ph); ctx.stroke();
-  }
-  if (c==='b'){
-    ctx.fillStyle = '#9b6a4f'; ctx.fillRect(sx, sy, TILE, TILE);
-    ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = 1;
-    for (let i=0;i<4;i++){ ctx.beginPath(); ctx.moveTo(sx, sy+i*10+5); ctx.lineTo(sx+TILE, sy+i*10+5); ctx.stroke(); }
-    ctx.fillStyle = '#c9b08a'; ctx.fillRect(sx+8, sy+8, 10, 10);
-  }
-  if (c==='d'){
-    ctx.fillStyle = '#9b6a4f'; ctx.fillRect(sx, sy, TILE, TILE);
-    ctx.fillStyle = '#5d3b1e'; ctx.fillRect(sx+8, sy+6, 24, 34);
-    ctx.fillStyle = '#e8d9b0'; ctx.fillRect(sx+12, sy+10, 16, 8);
-    ctx.fillStyle = '#7a1f1f'; ctx.font = '8px Georgia'; ctx.fillText('19', sx+15, sy+17);
-  }
-  if (c==='f'){
-    ctx.fillStyle = '#7a5a36';
-    ctx.fillRect(sx+4, sy+10, 6, 24); ctx.fillRect(sx+26, sy+10, 6, 24);
-    ctx.fillRect(sx, sy+16, TILE, 5);
-  }
-  if (c==='G'){
-    ctx.fillStyle = '#666b77';
-    ctx.fillRect(sx+2, sy+4, 8, 32); ctx.fillRect(sx+30, sy+4, 8, 32);
-    ctx.fillRect(sx+10, sy+10, 20, 4); ctx.fillRect(sx+10, sy+24, 20, 4);
-    ctx.fillStyle = '#444'; ctx.fillRect(sx+13, sy+10, 3, 18); ctx.fillRect(sx+19, sy+10, 3, 18); ctx.fillRect(sx+25, sy+10, 3, 18);
-  }
-  if (c==='m' || c==='M'){
-    const a = 0.30 + Math.sin(timeMs/700 + wx*1.3 + wy*0.7) * 0.12;
-    ctx.fillStyle = c==='m' ? `rgba(190,160,235,${a})` : `rgba(140,100,220,${a+0.12})`;
-    ctx.beginPath(); ctx.arc(sx+13, sy+16, 11, 0, 7); ctx.arc(sx+27, sy+24, 10, 0, 7); ctx.fill();
-  }
-  if (c==='a'){
-    const g = 0.5 + Math.sin(timeMs/400)*0.3;
-    ctx.fillStyle = `rgba(240,230,170,${g})`;
-    ctx.beginPath(); ctx.arc(sx+20, sy+20, 13, 0, 7); ctx.fill();
-    ctx.fillStyle = '#3c3158'; ctx.beginPath(); ctx.arc(sx+24, sy+18, 10, 0, 7); ctx.fill();
-  }
+  if (!TC) buildTiles();
+  // pick the baked ground beneath this tile
+  let ground = 'grass';
+  if (c==='.') ground = 'path';
+  else if (c==='D' || c==='M' || c==='a') ground = 'depth';
+  else if (c==='b') ground = 'wall';
+  else if (c==='d') ground = 'door';
+  else if (c==='w') ground = 'water';
+  else if (c==='G') ground = (wy<=8) ? 'depth' : 'path';
+  ctx.drawImage(TC[ground], sx, sy);
+  // decorations & animated overlays
+  if (c==='t') ctx.drawImage(TC.tree, sx, sy);
+  else if (c==='f') ctx.drawImage(TC.fence, sx, sy);
+  else if (c==='G') ctx.drawImage(TC.gate, sx, sy);
+  else if (c==='w') waveOverlay(sx, sy, wx, wy);
+  else if (c==='m' || c==='M') mistOverlay(sx, sy, wx, wy, c);
+  else if (c==='a') altarOverlay(sx, sy);
 }
 
 function drawPlayerSprite(sx, sy){
   ctx.fillStyle = 'rgba(0,0,0,.25)';
-  ctx.beginPath(); ctx.ellipse(sx+20, sy+35, 11, 4, 0, 0, 7); ctx.fill();
-  ctx.fillStyle = '#2b2b33'; ctx.fillRect(sx+12, sy+18, 16, 16);   // suit
-  ctx.fillStyle = '#e8c39e'; ctx.fillRect(sx+13, sy+5, 14, 13);    // face
-  ctx.fillStyle = '#2a1d12';
-  ctx.fillRect(sx+12, sy+3, 16, 5);                                 // hair
-  ctx.fillRect(sx+13, sy+14, 14, 5);                                // young beard
-  ctx.fillStyle = '#fff'; ctx.fillRect(sx+17, sy+20, 6, 7);         // shirt
-  ctx.fillStyle = '#1a1a22'; ctx.fillRect(sx+13, sy+34, 5, 4); ctx.fillRect(sx+22, sy+34, 5, 4);
-  ctx.fillStyle = '#111';
-  if (player.dir !== 'up'){
-    const ox = player.dir==='left' ? -2 : player.dir==='right' ? 2 : 0;
-    ctx.fillRect(sx+16+ox, sy+9, 2, 2); ctx.fillRect(sx+22+ox, sy+9, 2, 2);
-  }
+  ctx.beginPath(); ctx.ellipse(sx+20, sy+36, 11, 4, 0, 0, 7); ctx.fill();
+  drawPerson('freud', sx+4, sy+5, 2, player.dir);
 }
 
 function drawWorld(){
@@ -814,16 +1031,13 @@ function drawWorld(){
     const wx = camX+i, wy = camY+j;
     drawTile(map[wy][wx], i*TILE, j*TILE, wx, wy);
   }
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = '28px serif';
   for (const n of NPCS){
     const sx = (n.x-camX)*TILE, sy = (n.y-camY)*TILE;
     if (sx<-TILE||sy<-TILE||sx>W||sy>H) continue;
     ctx.fillStyle = 'rgba(0,0,0,.25)';
-    ctx.beginPath(); ctx.ellipse(sx+20, sy+34, 11, 4, 0, 0, 7); ctx.fill();
-    ctx.fillText(n.emoji, sx+20, sy+18);
+    ctx.beginPath(); ctx.ellipse(sx+20, sy+36, 11, 4, 0, 0, 7); ctx.fill();
+    drawPerson(n.id, sx+4, sy+5, 2, 'down');
   }
-  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   drawPlayerSprite((player.x-camX)*TILE, (player.y-camY)*TILE);
 
   // HUD strip
@@ -855,11 +1069,11 @@ function drawBattle(){
     ctx.beginPath(); ctx.arc(x, 60+i*55, 26+i*4, 0, 7); ctx.fill();
   }
 
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   const e = eMon(), p = pMon();
   // enemy
-  ctx.textAlign='center'; ctx.font = '72px serif';
-  ctx.fillText(SPECIES[e.sp].emoji, 480, 170);
-  ctx.textAlign='left';
+  platform(480, 196, 70);
+  drawCreature(e.sp, 480, 150, 7, true);
   panel(20, 20, 270, 74, '#efe8f6');
   ctx.fillStyle = '#241b3e'; ctx.font = 'bold 18px Georgia';
   ctx.fillText(`${b.wild?'Wild ':''}${monName(e)}`, 34, 45);
@@ -871,9 +1085,8 @@ function drawBattle(){
   drawHpBar(115, 56, 160, e);
 
   // player mon
-  ctx.textAlign='center'; ctx.font = '72px serif';
-  ctx.fillText(SPECIES[p.sp].emoji, 150, 320);
-  ctx.textAlign='left';
+  platform(150, 344, 70);
+  drawCreature(p.sp, 150, 300, 7, false);
   panel(340, 250, 280, 96, '#efe8f6');
   ctx.fillStyle = '#241b3e'; ctx.font = 'bold 18px Georgia';
   ctx.fillText(monName(p), 354, 275);
@@ -931,9 +1144,10 @@ function drawBattle(){
   if (b.phase === 'party'){
     ctx.font = '15px Georgia';
     party.forEach((m,i) => {
-      const oy = 384 + i*16;
+      const oy = 384 + i*17;
+      drawCreature(m.sp, 50, oy-5, 1);
       ctx.fillStyle = i===b.partyIdx ? '#8a2434' : (m.hp<=0 ? '#998' : '#2a2018');
-      ctx.fillText(`${i===b.partyIdx?'▶ ':'  '}${SPECIES[m.sp].emoji} ${monName(m)} Lv${m.lvl}  ${m.hp}/${m.stats.maxhp}${i===b.activeIdx?'  (active)':''}`, 30, oy);
+      ctx.fillText(`${i===b.partyIdx?'▶':' '} ${monName(m)} Lv${m.lvl}  ${m.hp}/${m.stats.maxhp}${i===b.activeIdx?'  (active)':''}`, 62, oy);
     });
     ctx.fillStyle = '#7a6648'; ctx.font = '13px Georgia';
     ctx.fillText(b.forced ? 'Choose your next dream!' : 'X: back', W-220, 458);
@@ -949,8 +1163,8 @@ function drawTitle(){
     const x = (i*101 + timeMs/60) % (W+60) - 30;
     ctx.beginPath(); ctx.arc(x, 50+i*60, 18+i*3, 0, 7); ctx.fill();
   }
+  drawCouch(W/2, 120, 4);
   ctx.textAlign='center';
-  ctx.font='70px serif'; ctx.fillText('🛋️', W/2, 140);
   ctx.fillStyle = '#f0e6c8'; ctx.font = 'bold 44px Georgia';
   ctx.fillText('TRAUMFÄNGER', W/2, 215);
   ctx.fillStyle = '#cfc4e8'; ctx.font = 'italic 20px Georgia';
@@ -973,7 +1187,7 @@ function drawStarter(){
   STARTERS.forEach((sp,i) => {
     const x = 40 + i*190, y = 100, sel = i===starterIdx;
     panel(x, y, 180, 250, sel ? '#fbf7ea' : '#d8d0c2', sel ? '#8a2434' : '#3a2d20');
-    ctx.font = '56px serif'; ctx.fillText(SPECIES[sp].emoji, x+90, y+80);
+    drawCreature(sp, x+90, y+66, 4);
     ctx.fillStyle = '#241b3e'; ctx.font = 'bold 19px Georgia';
     ctx.fillText(SPECIES[sp].name, x+90, y+120);
     ctx.fillStyle = TYPE_COLOR[SPECIES[sp].type];
@@ -1002,7 +1216,9 @@ function drawMenu(){
   if (party.length === 0) ctx.fillText('(none yet — see Prof. Brücke)', 105, 160);
   party.forEach((m,i) => {
     const y = 160 + i*30;
-    ctx.fillText(`${SPECIES[m.sp].emoji} ${monName(m)}  Lv${m.lvl}  HP ${m.hp}/${m.stats.maxhp}`, 105, y);
+    drawCreature(m.sp, 113, y-5, 1);
+    ctx.fillStyle = '#241b3e';
+    ctx.fillText(`${monName(m)}  Lv${m.lvl}  HP ${m.hp}/${m.stats.maxhp}`, 126, y);
     ctx.fillStyle = TYPE_COLOR[SPECIES[m.sp].type];
     ctx.fillText(SPECIES[m.sp].type, 400, y);
     ctx.fillStyle = '#241b3e';
