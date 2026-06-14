@@ -8,7 +8,10 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 const start = html.indexOf('<script>') + '<script>'.length;
 const end = html.lastIndexOf('</script>');
 if (start < '<script>'.length || end < 0) throw new Error('could not extract <script> from index.html');
-const src = html.slice(start, end);
+// The game reads its species/sprite data from dreams.js (a plain classic
+// script in the browser); load it the same way the page does.
+const dreamsSrc = fs.readFileSync(path.join(__dirname, '..', 'dreams.js'), 'utf8');
+const src = dreamsSrc + '\n' + html.slice(start, end);
 
 // --- browser stubs ---
 const stub = new Proxy(function(){}, {
