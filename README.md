@@ -20,6 +20,11 @@ xdg-open index.html        # or just double-click it
 | Z / Enter | Talk, confirm, advance text |
 | X | Open Dream Journal / back out of battle menus |
 
+On phones and tablets the game shows an on-screen Gameboy-style pad — a
+D-pad on the left and **Z** / **X** buttons on the right (same actions as the
+keys above). It appears automatically on touch devices; add `?pad=1` to the
+URL to force it on for testing on a desktop.
+
 ## How to play
 
 1. Talk to **Prof. Brücke** in the plaza to pick a starter dream
