@@ -12,6 +12,13 @@ No build, no dependencies — open the file in any browser:
 xdg-open index.html        # or just double-click it
 ```
 
+## Dream Codex
+
+A companion reference page, **`dream-codex.html`**, shows all 15 dreams with
+their pixel art, name, type, and description. The title screen links to it.
+Both the game and the codex read their species and sprite data from the shared
+**`dreams.js`** — the single source of truth — so they never drift apart.
+
 ## Controls
 
 | Key | Action |

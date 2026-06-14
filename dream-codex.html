@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Traumfänger — The Dream Codex</title>
+<style>
+  :root { --ink:#2b2118; --paper:#f4 ead0; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #1a1320 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3C/svg%3E");
+    color: #2b2118;
+    font-family: Georgia, 'Times New Roman', serif;
+    padding: 40px 16px 80px;
+  }
+  header {
+    max-width: 1100px;
+    margin: 0 auto 36px;
+    text-align: center;
+    color: #f4ead0;
+  }
+  header h1 {
+    font-size: 38px;
+    letter-spacing: 2px;
+    margin: 0 0 6px;
+    text-shadow: 2px 2px 0 #000;
+  }
+  header .sub { font-style: italic; opacity: 0.85; font-size: 16px; }
+  header .rule { width: 220px; height: 2px; background: #b89a64; margin: 18px auto 0; }
+
+  .grid {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 22px;
+  }
+  .card {
+    background: #f4ead0;
+    border: 3px solid #3a2d20;
+    border-radius: 4px;
+    box-shadow: 4px 4px 0 rgba(0,0,0,0.45), inset 0 0 0 2px #cdb279;
+    padding: 16px 18px 18px;
+    display: flex;
+    flex-direction: column;
+  }
+  .card .top {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px dashed #b89a64;
+    padding-bottom: 10px;
+    margin-bottom: 12px;
+  }
+  .num {
+    font-size: 13px;
+    color: #8a6a40;
+    font-variant-numeric: tabular-nums;
+  }
+  .card h2 {
+    margin: 0;
+    font-size: 22px;
+    letter-spacing: 0.5px;
+    flex: 1;
+  }
+  .emoji { font-size: 26px; line-height: 1; }
+  .body { display: flex; gap: 16px; align-items: flex-start; }
+  canvas {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    background: radial-gradient(circle at 50% 40%, #efe7d5, #d8c8a4);
+    border: 2px solid #3a2d20;
+    flex-shrink: 0;
+  }
+  .meta { flex: 1; }
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    color: #fff;
+    padding: 3px 8px;
+    border-radius: 3px;
+    margin-bottom: 10px;
+  }
+  .desc { font-size: 15px; line-height: 1.45; font-style: italic; color: #3a2d20; }
+
+  .DESIRE { background: #c0507a; }
+  .FEAR   { background: #5a4a8a; }
+  .MEMORY { background: #2f8fa0; }
+  .SYMBOL { background: #b07a2a; }
+
+  footer { text-align: center; color: #b89a64; font-style: italic; margin-top: 46px; font-size: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>THE DREAM CODEX</h1>
+  <div class="sub">Traumfänger — Young Freud and the Dream Catchers · Vienna, 1885</div>
+  <div class="rule"></div>
+</header>
+
+<div class="grid" id="grid"></div>
+
+<footer>Fifteen dreams, sketched from the field notebooks of S. Freud.</footer>
+
+<script src="dreams.js"></script>
+<script>
+/* ---- palette engine (lifted verbatim from the game) ---- */
+function shade(hex, f){
+  const n = parseInt(hex.slice(1), 16);
+  let r = (n>>16)&255, g = (n>>8)&255, b = n&255;
+  r = Math.max(0, Math.min(255, Math.round(r*f)));
+  g = Math.max(0, Math.min(255, Math.round(g*f)));
+  b = Math.max(0, Math.min(255, Math.round(b*f)));
+  return '#' + (0x1000000 + (r<<16) + (g<<8) + b).toString(16).slice(1);
+}
+function basePal(base){
+  return { o:shade(base,0.42), B:base, d:shade(base,0.72), l:shade(base,1.28),
+           w:'#ffffff', k:'#191325', W:'#ffffff' };
+}
+
+/* ---- dream data is provided by dreams.js (shared with the game) ---- */
+
+/* ---- render each sprite to a crisp canvas ---- */
+const P = 9;                 // pixels per cell -> 16*9 = 144px
+const grid = document.getElementById('grid');
+
+Object.values(DREAMS).forEach((d, i) => {
+  const pal = Object.assign(basePal(d.c), d.x || {});
+
+  const card = document.createElement('div');
+  card.className = 'card';
+
+  const num = String(i + 1).padStart(2, '0');
+  card.innerHTML =
+    '<div class="top">' +
+      '<span class="emoji">' + d.emoji + '</span>' +
+      '<h2>' + d.name + '</h2>' +
+      '<span class="num">№ ' + num + '</span>' +
+    '</div>' +
+    '<div class="body">' +
+      '<canvas width="' + (16*P) + '" height="' + (16*P) + '"></canvas>' +
+      '<div class="meta">' +
+        '<span class="badge ' + d.type + '">' + d.type + '</span>' +
+        '<div class="desc">' + d.desc + '</div>' +
+      '</div>' +
+    '</div>';
+
+  grid.appendChild(card);
+
+  const cv = card.querySelector('canvas');
+  const ctx = cv.getContext('2d');
+  for (let y = 0; y < d.rows.length; y++){
+    const row = d.rows[y];
+    for (let x = 0; x < row.length; x++){
+      const c = pal[row[x]];
+      if (!c) continue;
+      ctx.fillStyle = c;
+      ctx.fillRect(x * P, y * P, P, P);
+    }
+  }
+});
+</script>
+</body>
+</html>
