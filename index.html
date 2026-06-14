@@ -2,16 +2,60 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>Traumfänger — Young Freud and the Dream Catchers</title>
 <style>
-  html,body{margin:0;height:100%;background:#171225;display:flex;align-items:center;justify-content:center;flex-direction:column;font-family:Georgia,serif;color:#cfc4e8}
-  canvas{border:4px solid #4a3b6b;border-radius:6px;box-shadow:0 0 40px #000;image-rendering:pixelated;background:#000}
-  p.hint{margin:10px 0 0;font-size:14px;opacity:.7}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{min-height:100dvh;background:#171225;display:flex;align-items:center;justify-content:center;flex-direction:column;font-family:Georgia,serif;color:#cfc4e8}
+  .stage{display:flex;align-items:center;justify-content:center;min-height:0}
+  canvas{border:4px solid #4a3b6b;border-radius:6px;box-shadow:0 0 40px #000;image-rendering:pixelated;background:#000;max-width:100%}
+  p.hint{margin:10px 0 0;font-size:14px;opacity:.7;text-align:center;padding:0 10px}
+  #controls{display:none}
+
+  /* ---- phone / touch layout: game on top, virtual Gameboy pad below ---- */
+  body.touch{height:100dvh;overflow:hidden;justify-content:flex-start;
+    overscroll-behavior:none;user-select:none;-webkit-user-select:none;
+    -webkit-tap-highlight-color:transparent;touch-action:none}
+  body.touch .stage{flex:1;width:100%;padding:6px}
+  body.touch canvas{border-width:2px;width:auto;height:auto;max-width:100%;max-height:100%}
+  body.touch p.hint{display:none}
+  body.touch #controls{display:flex;align-items:center;justify-content:space-between;
+    width:100%;flex:0 0 auto;gap:12px;
+    padding:16px 24px calc(16px + env(safe-area-inset-bottom))}
+
+  .pad,.act{font-family:inherit;color:#e8ddff;background:#3a2d5c;border:2px solid #5b497f;
+    border-radius:12px;line-height:1;cursor:pointer;touch-action:none;
+    -webkit-user-select:none;user-select:none;
+    display:flex;align-items:center;justify-content:center}
+  .pad:active,.act:active{background:#6b56a0;transform:translateY(1px)}
+  #dpad{display:grid;grid-template-columns:repeat(3,58px);grid-template-rows:repeat(3,58px);gap:4px}
+  #dpad .pad{font-size:22px}
+  #dpad .up{grid-area:1/2}
+  #dpad .left{grid-area:2/1}
+  #dpad .right{grid-area:2/3}
+  #dpad .down{grid-area:3/2}
+  #ab{display:grid;grid-template-columns:repeat(2,72px);grid-template-rows:repeat(2,72px);gap:10px}
+  #ab .act{border-radius:50%;font-size:24px;font-weight:bold}
+  #ab .b{grid-area:1/1}
+  #ab .a{grid-area:2/2}
 </style>
 </head>
 <body>
-<canvas id="c" width="640" height="480"></canvas>
+<div class="stage"><canvas id="c" width="640" height="480"></canvas></div>
 <p class="hint">Arrows/WASD: move &nbsp;·&nbsp; Z/Enter: confirm &amp; talk &nbsp;·&nbsp; X: journal / back</p>
+<div id="controls">
+  <div id="dpad">
+    <button class="pad up"    data-key="arrowup"    aria-label="Up">▲</button>
+    <button class="pad left"  data-key="arrowleft"  aria-label="Left">◄</button>
+    <button class="pad right" data-key="arrowright" aria-label="Right">►</button>
+    <button class="pad down"  data-key="arrowdown"  aria-label="Down">▼</button>
+  </div>
+  <div id="ab">
+    <button class="act b" data-key="x" aria-label="X button">X</button>
+    <button class="act a" data-key="z" aria-label="Z button">Z</button>
+  </div>
+</div>
 <script>
 "use strict";
 /* ============================================================
@@ -680,15 +724,45 @@ function newGame(){
               'Professor Brücke waits in the plaza. (Walk with arrows, talk with Z.)']);
 }
 
-window.addEventListener('keydown', e => {
-  const k = e.key.toLowerCase();
-  if (k.startsWith('arrow') || k === ' ') e.preventDefault();
+// Shared input path: keyboard and the on-screen pad both go through these.
+function pressKey(k){
   keysDown[k] = true;
   if (k==='z'||k==='enter'||k==='x') handleKey(k);
   // discrete (non-held) navigation in menus & battles
   if (state !== 'world' && KEY_DIR[k]) handleKey(k);
+}
+function releaseKey(k){ keysDown[k] = false; }
+
+window.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (k.startsWith('arrow') || k === ' ') e.preventDefault();
+  pressKey(k);
 });
-window.addEventListener('keyup', e => { keysDown[e.key.toLowerCase()] = false; });
+window.addEventListener('keyup', e => { releaseKey(e.key.toLowerCase()); });
+
+/* ---------------- Virtual Gameboy pad (touch devices) ----------------
+   Each button carries a data-key matching a real keyboard key, so the
+   pad reuses the exact keyboard logic above: a held d-pad button keeps
+   keysDown set (the update loop polls it for continuous walking), and in
+   menus/battles each press steps once via handleKey — identical to keys.
+   Guarded so the headless smoke test (no matchMedia) never runs it. */
+function setupTouchControls(){
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+  const forced = /[?&]pad=1\b/.test(location.search);
+  const isTouch = forced || window.matchMedia('(pointer: coarse)').matches || ('ontouchstart' in window);
+  if (!isTouch) return;
+  document.body.classList.add('touch');
+  document.querySelectorAll('#controls button[data-key]').forEach(btn => {
+    const key = btn.getAttribute('data-key');
+    btn.addEventListener('pointerdown', e => { e.preventDefault(); pressKey(key); });
+    const release = e => { e.preventDefault(); releaseKey(key); };
+    btn.addEventListener('pointerup', release);
+    btn.addEventListener('pointercancel', release);
+    btn.addEventListener('pointerleave', release);
+    btn.addEventListener('contextmenu', e => e.preventDefault());
+  });
+}
+setupTouchControls();
 
 /* ---------------- Update ---------------- */
 function update(dt){
